@@ -1,0 +1,384 @@
+# openclaude-mcp — Full LLM Documentation
+# llms-full.txt — long-form reference for agents and LLMs
+# See also: llms.txt (index), README.md
+
+## Project Overview
+
+openclaude-mcp is a FastMCP 3.2 MCP server that wraps OpenClaude — the community
+fork of Anthropic's Claude Code tool (leaked March 31 2026 via npm source map) —
+and runs it against local Ollama models. It provides zero-cloud-cost agentic coding
+sessions with KAIROS memory consolidation, optional ULTRAPLAN cloud planning, and a
+React webapp control panel.
+
+**Ports:** 10932 (MCP + REST), 10933 (webapp)
+**Repo:** D:\Dev\repos\openclaude-mcp
+**Start:** .\start.ps1 or starts\openclaude-mcp-start.bat
+
+---
+
+## Architecture
+
+```
+Claude Desktop / Cursor / other MCP client
+        │ SSE (MCP protocol)
+        ▼
+┌─────────────────────────────────────────────┐
+│  FastMCP 3.2 server (port 10932)            │
+│  ┌──────────────────────┐                   │
+│  │  FastMCPApp "fleet"  │  @app.ui() →      │
+│  │  fleet_dashboard     │  Prefab rendering  │
+│  │  fleet_status        │  (if prefab-ui     │
+│  └──────────────────────┘   installed)       │
+│                                             │
+│  Tools: list_models, start_session,         │
+│  send_prompt, kairos_enable, ultraplan, …   │
+├─────────────────────────────────────────────┤
+│  REST bridge: POST /tools/{name}            │
+│  GET /api/health, /api/capabilities         │
+└──────────────┬──────────────────────────────┘
+               │
+   ┌───────────┴────────────┐
+   │                        │
+   ▼                        ▼
+openclaude subprocess    KAIROS daemon
+(Node.js CLI, Ollama     (asyncio task,
+ OpenAI shim)            autoDream loop)
+   │
+   ▼
+Ollama :11434
+(gemma4:26b-a4b default)
+```
+
+React webapp (port 10933) communicates via the REST bridge.
+MCP clients (Claude Desktop, Cursor) use the SSE transport at /sse.
+
+---
+
+## Tools Reference
+
+### list_models
+List available Ollama models with VRAM, speed, context, license, and availability metadata.
+
+**Returns:** dict with keys: default (str), ollama_running (bool), known_models (dict of tag→metadata), all_ollama_models (list of str)
+
+**Example:**
+```json
+{
+  "tool": "list_models",
+  "result": {
+    "default": "gemma4:26b-a4b",
+    "ollama_running": true,
+    "known_models": {
+      "gemma4:26b-a4b": {
+        "label": "Gemma 4 26B MoE (recommended)",
+        "active_params_b": 3.8,
+        "vram_q4_gb": 9.5,
+        "est_toks": "80-100",
+        "context_k": 256,
+        "tool_calling": true,
+        "license": "Apache-2.0",
+        "available_in_ollama": true,
+        "is_default": true
+      }
+    }
+  }
+}
+```
+
+---
+
+### set_default_model
+Set the default Ollama model used when starting new sessions.
+
+**Args:** model_tag (str) — Ollama tag e.g. "gemma4:26b-a4b"
+**Returns:** {"default": str, "status": "ok"}
+
+---
+
+### model_status
+Health-check Ollama and verify whether a model is loaded in VRAM.
+
+**Args:** model_tag (str, optional)
+**Returns:** {"target": str, "ollama_ok": bool, "model_available": bool, "model_in_vram": bool, "metadata": dict}
+
+---
+
+### start_session
+Launch an OpenClaude subprocess in a project directory.
+
+**Args:**
+- working_dir (str) — absolute path, e.g. "D:\\Dev\\repos\\my-project"
+- model_tag (str, optional) — overrides default
+- enable_kairos (bool, default false) — start autoDream daemon
+
+**Returns:** {"session_id": str, "model": str, "working_dir": str, "kairos": bool, "status": "started"}
+
+**Prerequisites:** openclaude must be on PATH (npm install -g @gitlawb/openclaude)
+
+**Example:**
+```json
+{"tool": "start_session", "args": {"working_dir": "D:\\Dev\\repos\\yahboom-mcp", "enable_kairos": true}}
+```
+
+---
+
+### send_prompt
+Send a natural language instruction to a running OpenClaude session.
+
+**Args:** session_id (str), prompt (str)
+**Returns:** {"session_id": str, "output": str, "model": str}
+
+The prompt goes to stdin of the openclaude process. Output is collected for up to 60 seconds.
+
+**Example:**
+```json
+{"tool": "send_prompt", "args": {"session_id": "a1b2c3d4", "prompt": "Add a /health endpoint to the FastAPI app in main.py"}}
+```
+
+---
+
+### session_status
+Get current state of an OpenClaude session.
+
+**Returns:** {"session_id": str, "model": str, "working_dir": str, "status": str, "kairos_enabled": bool, "elapsed_seconds": int, "last_output_preview": str, "pid": int|null, "output_lines": int}
+
+---
+
+### list_sessions
+List all active sessions.
+**Returns:** {"sessions": list of session snapshots}
+
+---
+
+### stop_session
+Terminate and clean up a session. Sends /exit to openclaude, then terminates the process.
+
+**Args:** session_id (str)
+**Returns:** {"session_id": str, "status": "stopped"}
+
+---
+
+### kairos_enable
+Start the KAIROS autoDream background daemon on a session.
+
+KAIROS runs memory consolidation when the session is idle past `idle_threshold_seconds`.
+It reads MEMORY.md, gathers session observations, calls the local Ollama model to
+consolidate, and writes updated MEMORY.md.
+
+**Args:** session_id (str), idle_threshold_seconds (int, default 60)
+**Returns:** {"session_id": str, "kairos": "enabled", "idle_threshold_seconds": int}
+
+---
+
+### kairos_disable
+Stop KAIROS daemon on a session.
+
+**Args:** session_id (str)
+**Returns:** {"session_id": str, "kairos": "disabled"}
+
+---
+
+### kairos_log
+Retrieve the KAIROS consolidation log for a session.
+
+**Args:** session_id (str), lines (int, default 50)
+**Returns:** {"session_id": str, "lines": list[str], "total_entries": int}
+
+---
+
+### ultraplan
+Route a complex planning goal to Anthropic Opus 4.6 for deep planning (up to 30 min),
+then feed the resulting plan into the local session for execution.
+
+Concept from the Claude Code leak: offload hard architecture decisions to a smarter
+cloud model while keeping all code execution local and zero-token-cost.
+
+**Args:** session_id (str), goal (str)
+**Requires:** ANTHROPIC_API_KEY environment variable
+**Returns:** {"status": "ok", "plan": str, "session_feed": dict} or {"error": str, "status": "no_api_key"}
+
+**Cost note:** Opus 4.6 at up to 8192 output tokens is expensive. Use for genuine
+architecture decisions, not routine tasks. Most work is handled locally at zero cost.
+
+---
+
+### fleet_status (via FastMCPApp)
+Get raw fleet status data. Also visible to model (model=True in FastMCPApp registration).
+
+**Returns:** {"active_sessions": int, "total_sessions": int, "kairos_active": int, "default_model": str, "ollama_running": bool}
+
+---
+
+### fleet_dashboard (via FastMCPApp @app.ui())
+Entry-point UI tool. When prefab-ui is installed, renders a live Prefab dashboard in
+the MCP client. Without prefab-ui, returns a plain JSON summary.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| OPENCLAUDE_MCP_PORT | 10932 | Backend port |
+| ANTHROPIC_API_KEY | (unset) | Required for ULTRAPLAN |
+| OLLAMA_BASE | http://localhost:11434 | Ollama endpoint |
+
+---
+
+## Supported Models (RTX 4090, 24 GB VRAM, Q4_K_M)
+
+| Tag | Active Params | VRAM | Speed | Context | SWE-bench | Notes |
+|---|---|---|---|---|---|---|
+| gemma4:26b-a4b | 3.8B | ~9.5 GB | 80-100 tok/s | 256K | ~80% | **Default.** MoE, Apache-2.0 |
+| gemma4:31b | 31B | ~20 GB | 45-60 tok/s | 256K | ~80% | Max quality. Dense. |
+| qwen3.5:35b-a3b | 3B | ~8.5 GB | 112 tok/s | 128K | ~72% | Fastest. MoE. |
+| qwen3.5:27b | 27B | ~15 GB | 40 tok/s | 128K | 72.4% | Best reasoning. |
+| qwen3-coder-next | TBD | TBD | TBD | TBD | TBD | Agentic specialist. |
+| glm5 | TBD | TBD | TBD | TBD | #1 open | MIT license. |
+
+---
+
+## KAIROS Architecture
+
+KAIROS (Greek: "the right moment") is the autonomous background memory daemon
+exposed in the March 31 2026 Claude Code source leak.
+
+**Problem it solves:** Context entropy. Long agentic sessions accumulate noise —
+failed attempts, superseded decisions, repeated discoveries — that degrades model
+coherence over time. KAIROS periodically compresses session observations into a
+clean, durable MEMORY.md file.
+
+**Four-phase autoDream cycle:**
+
+1. Orient — Read MEMORY.md from working_dir (existing ground truth)
+2. Gather — Collect last_output_preview from the session (new signals)
+3. Consolidate — LLM call via Ollama /v1/chat/completions with consolidation system prompt
+4. Prune — Write updated MEMORY.md (vague→concrete, remove contradictions)
+
+**Implementation:**
+- asyncio.Task per session, polls every 30 seconds
+- Idle detection via last_activity timestamp, reset by every send_prompt call
+- Uses the same Ollama model as the parent session
+- MEMORY.md written to session working_dir
+
+**Quality by model:**
+- claude-opus-4-6 (cloud): Excellent — what Anthropic designed for
+- qwen3.5:27b (thinking mode): Very good — best local option
+- gemma4:26b-a4b: Good — adequate for most sessions
+- qwen3.5:35b-a3b: Adequate — fast but 3B active params limits depth
+
+---
+
+## OpenClaude (the fork)
+
+OpenClaude is a community fork of the Claude Code source leaked March 31 2026.
+The key addition is an OpenAI-compatible provider shim (~724 lines TypeScript) that
+duck-types the Anthropic SDK so any OpenAI-compatible endpoint can be used.
+
+**Install:** npm install -g @gitlawb/openclaude
+**Usage:** openclaude --dangerously-skip-permissions
+
+**What it contains (from the leak):**
+- Full bash/file/grep/glob tool implementations
+- Multi-agent orchestration (AgentTool spawns sub-agents)
+- Slash commands: /commit, /review, /compact, /diff, /doctor
+- LSP integration, notebook editing, task management
+- KAIROS autoDream (reimplemented in our Python daemon)
+- ULTRAPLAN relay (reimplemented in our _ultraplan tool)
+- 44 feature flags (mostly unimplemented in forks)
+
+**Legal:** DMCA takedowns against direct mirrors. Clean-room forks untargeted Apr 2026.
+Personal/research use low-risk. Corporate deployment warrants legal review.
+
+---
+
+## The Great Leak of 2026
+
+On March 31 2026, Anthropic accidentally published the full source of Claude Code
+to the public npm registry via a 59.8MB source map file in version 2.1.88.
+
+Root cause: missing *.map in .npmignore, combined with a known Bun bug (Anthropic
+acquired Bun in late 2025) that generates source maps in production mode.
+
+Discoverer: Chaofan Shou (security researcher), whose X post hit 28.8M views.
+
+Scale of spread:
+- Primary GitHub mirror: 84,000+ stars, 82,000+ forks
+- Claw-code (clean-room rewrite): 55,800+ stars in ~2 hours — GitHub record
+- Hundreds of npm forks, Rust rewrites, Python reimplementations
+
+Concurrent supply chain attack (unrelated): axios npm package was trojanized
+with a RAT during the same window (00:21–03:29 UTC). If you updated npm packages
+in that window, rotate all secrets.
+
+---
+
+## Testing
+
+```powershell
+# All tests
+just test
+
+# Unit only (fast, no external deps)
+just test-unit
+
+# Smoke test (starts server, checks health endpoint)
+just smoke
+
+# Integration (requires Ollama)
+just test-integration
+
+# E2E (requires Ollama + openclaude on PATH)
+just test-e2e
+```
+
+Test structure:
+- tests/unit/           — model_router, session (mocked), kairos logic
+- tests/integration/    — REST bridge, Ollama connectivity
+- tests/smoke/          — server startup, /api/health
+- tests/e2e/            — full session lifecycle with real openclaude
+
+---
+
+## Installation
+
+```powershell
+# First time
+.\setup.ps1          # installs uv deps, npm deps, openclaude, pulls models
+
+# Every time
+.\start.ps1          # clears ports, starts server + webapp, opens browser
+
+# Or from fleet starts/
+D:\Dev\repos\mcp-central-docs\starts\openclaude-mcp-start.bat
+```
+
+## Claude Desktop Config
+
+```json
+{
+  "mcpServers": {
+    "openclaude-mcp": {
+      "command": "C:\\Users\\sandr\\.local\\bin\\uv.exe",
+      "args": ["--directory", "D:\\Dev\\repos\\openclaude-mcp", "run", "python", "server.py"],
+      "env": {"OPENCLAUDE_MCP_PORT": "10932"}
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+**Server won't start:** Check that fastmcp>=3.2.0 is installed: `uv sync`
+
+**Webapp blank / can't reach backend:** Verify server is on :10932 with `curl http://localhost:10932/api/health`
+
+**Sessions fail immediately:** openclaude not on PATH. Run: `npm install -g @gitlawb/openclaude`
+
+**Ollama not found:** Start Ollama: `ollama serve`. Pull model: `ollama pull gemma4:26b-a4b`
+
+**KAIROS not consolidating:** Check kairos_log. The idle threshold must be exceeded (default 60s). The working_dir must be writable (MEMORY.md is created there).
+
+**ULTRAPLAN fails:** Set ANTHROPIC_API_KEY environment variable. Without it, local sessions still work fully.
+
+**Prefab UI not rendering:** Install apps extra: `uv sync --extra apps`. Without it, fleet_dashboard returns plain JSON.

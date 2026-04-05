@@ -1,0 +1,76 @@
+{
+  "manifest_version": "0.2",
+  "name": "openclaude-mcp",
+  "version": "0.1.0",
+  "description": "MCP control plane for OpenClaude — run the Claude Code harness against local Ollama models. Zero cloud token cost. KAIROS autoDream memory consolidation. ULTRAPLAN cloud planning relay. FastMCP 3.2.",
+  "author": {
+    "name": "Sandra Schi",
+    "url": "https://github.com/sandraschi"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "python", "server.py"],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "OPENCLAUDE_MCP_PORT": "10932"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_models",
+      "description": "List available Ollama models with VRAM, speed, context, and license metadata"
+    },
+    {
+      "name": "set_default_model",
+      "description": "Set the default Ollama model for new OpenClaude sessions"
+    },
+    {
+      "name": "model_status",
+      "description": "Health-check Ollama and verify a model is loaded in VRAM"
+    },
+    {
+      "name": "start_session",
+      "description": "Launch an OpenClaude agentic coding session in a project directory"
+    },
+    {
+      "name": "send_prompt",
+      "description": "Send a natural language instruction to a running OpenClaude session"
+    },
+    {
+      "name": "session_status",
+      "description": "Get current output, status, and elapsed time for a session"
+    },
+    {
+      "name": "list_sessions",
+      "description": "List all active OpenClaude sessions"
+    },
+    {
+      "name": "stop_session",
+      "description": "Stop and clean up an OpenClaude session"
+    },
+    {
+      "name": "kairos_enable",
+      "description": "Enable KAIROS autoDream background memory consolidation daemon"
+    },
+    {
+      "name": "kairos_disable",
+      "description": "Disable KAIROS daemon on a session"
+    },
+    {
+      "name": "kairos_log",
+      "description": "Retrieve KAIROS memory consolidation log for a session"
+    },
+    {
+      "name": "ultraplan",
+      "description": "Route complex planning to Anthropic Opus, feed plan back to local session. Requires ANTHROPIC_API_KEY."
+    },
+    {
+      "name": "fleet_status",
+      "description": "Get live fleet summary: active sessions, KAIROS daemons, default model, Ollama status"
+    }
+  ]
+}

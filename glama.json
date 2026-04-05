@@ -1,0 +1,50 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": ["sandraschi"],
+  "name": "openclaude-mcp",
+  "version": "0.1.0",
+  "description": "MCP control plane for OpenClaude — run the Claude Code harness (from the March 2026 leak) against local Ollama models. Zero cloud token cost. KAIROS autoDream memory consolidation. ULTRAPLAN cloud relay. FastMCP 3.2.",
+  "type": "mcp_server",
+  "status": "beta",
+  "framework": "FastMCP 3.2",
+  "transport": ["sse", "streamable-http"],
+  "tools": 13,
+  "keywords": [
+    "openclaude",
+    "claude-code",
+    "ollama",
+    "local-llm",
+    "kairos",
+    "ultraplan",
+    "fastmcp",
+    "agentic-coding",
+    "gemma4",
+    "qwen"
+  ],
+  "features": {
+    "session_management": {
+      "enabled": true,
+      "description": "Start, monitor, prompt, and stop OpenClaude coding sessions"
+    },
+    "model_routing": {
+      "enabled": true,
+      "description": "Switch between Ollama models per session with VRAM/speed metadata"
+    },
+    "kairos": {
+      "enabled": true,
+      "description": "KAIROS autoDream background daemon — LLM memory consolidation when idle"
+    },
+    "ultraplan": {
+      "enabled": true,
+      "description": "Offload complex planning to Anthropic Opus, execute locally. Requires ANTHROPIC_API_KEY."
+    },
+    "prefab_ui": {
+      "enabled": true,
+      "description": "FastMCPApp fleet dashboard via Prefab UI. Requires fastmcp[apps] extra."
+    },
+    "rest_bridge": {
+      "enabled": true,
+      "description": "POST /tools/{name} REST endpoint alongside SSE transport for webapp integration"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv*/
+*.egg-info/
+dist/
+.ruff_cache/
+
+# Node
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/
+
+# uv
+.uv/
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
