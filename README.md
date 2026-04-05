@@ -40,15 +40,30 @@ OpenClaude is the community fork of the leaked Claude Code source. Because the c
 4. **ULTRAPLAN relay** — Intercept planning requests and route them strategically.
 5. **Webapp control panel** — A premium React dashboard for oversight.
 
-### Recommended Models (RTX 4090, 24 GB VRAM)
+## 💻 Hardware Configurations
 
-Your local models determine the agent's effectiveness. On a single RTX 4090, we recommend:
+Your local hardware dictates the agent's speed and capability. While the RTX 4090 is the absolute gold standard for zero-cost agentic inference, the control plane is highly adaptable.
+
+### 1. The Gold Standard: RTX 4090 (24 GB VRAM)
+On a single 24GB card, you have the headroom to run high-capability models with ample context:
 
 | Model | Ollama Tag | VRAM @ Q4 | Est. Speed | Notes |
 |---|---|---|---|---|
 | **Gemma 4 26B-A4B** | `gemma4:26b-a4b` | ~9.5 GB | ~80-100 tok/s | **Default.** Sweet spot of VRAM & quality. |
 | **Qwen3.5 35B-A3B MoE** | `qwen3.5:35b-a3b` | ~8.5 GB | ~112 tok/s | Fastest runner. Great for lightweight KAIROS loops. |
 | **Qwen3.5 27B dense** | `qwen3.5:27b` | ~15 GB | ~40 tok/s | Highest reasoning quality for its size. |
+
+### 2. The 16GB Tier (RTX 4080 / 4070 Ti)
+If you are capped at 16GB, avoid the 27B/35B models unless you quantize heavily. You must aggressively manage KAIROS memory limits to prevent out-of-memory (OOM) errors during long reasoning chains.
+- **Recommended Model:** `phi-4` (14B) or `qwen3.5:14b` 
+- **Tuning:** Constrain the context window to `32K` to ensure the model fits perfectly within your VRAM budget alongside overhead.
+
+### 3. Apple Silicon (M3 / M4 Max)
+Hefty Macs with unified memory are exceptionally capable for this workflow. Because the M-series GPU can address up to 128GB of high-bandwidth memory, you can run massive unquantized models (like Llama 3.3 70B) natively. Token throughput is bottlenecked by memory bandwidth (~400 GB/s vs the 4090's 1+ TB/s), but the logic fidelity is incredible.
+
+### 4. Raspberry Pi 5 (16GB) + Goliath Gateway
+You can easily spin up the control plane on a Raspberry Pi 5, provided you don't run the inference on it. 
+Simply point your `OLLAMA_HOST` variable (or an LM Studio endpoint link) to a dedicated "Goliath-type" GPU server on your local network. The Pi 5 natively handles the FastMCP server, the Vite webapp UI, the subprocess pipes, and file writes, while farming out the heavy matrix multiplication to the big rig.
 
 ## 🔌 Claude Desktop Configuration
 
