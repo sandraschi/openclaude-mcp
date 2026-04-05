@@ -1,10 +1,10 @@
 """tests/unit/test_session.py — unit tests for SessionStore and OpenClaudeSession."""
-import pytest
-import asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-from openclaude.session import OpenClaudeSession, SessionStore
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from openclaude.session import OpenClaudeSession, SessionStore
 
 pytestmark = pytest.mark.unit
 
@@ -169,7 +169,6 @@ class TestOpenClaudeSessionSend:
         # Patch the wait loop to return quickly
         with patch("asyncio.sleep", new_callable=AsyncMock):
             # Override the loop to exit after one iteration
-            original_send = s.send
 
             async def fast_send(prompt):
                 s._process.stdin.write((prompt + "\n").encode())
@@ -178,6 +177,6 @@ class TestOpenClaudeSessionSend:
                     s.on_activity()
                 return {"session_id": s.session_id, "output": "mocked", "model": s.model}
 
-            result = await fast_send("do something")
+            await fast_send("do something")
 
         assert len(called) == 1

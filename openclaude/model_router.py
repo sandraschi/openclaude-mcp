@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import httpx
 from typing import Any
+
+import httpx
 
 OLLAMA_BASE = "http://localhost:11434"
 

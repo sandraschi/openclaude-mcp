@@ -1,68 +1,93 @@
+# openclaude-mcp — SOTA Industrial Dashboard (Windows/PowerShell)
+#
+# Rule: JUST-SOTA-2026-04
+# Standard: PowerShell 7.4+ core-compliant
+
+set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+
 REPO   := "D:/Dev/repos/openclaude-mcp"
 UV     := "C:/Users/sandr/.local/bin/uv.exe"
 PYTHON := UV + " run python"
 NAME   := "openclaude-mcp"
 VER    := "0.1.0"
 
-# ── Default ──────────────────────────────────────────────────────────────────
+# ── Dashboard ─────────────────────────────────────────────────────────────────
 
+# Display the SOTA Industrial Dashboard
 default:
-    @just --list
+    @powershell -NoLogo -Command " \
+        $lines = Get-Content '{{justfile()}}'; \
+        Write-Host ' [OCP] OpenClaude Control Plane Dashboard v{{VER}}' -ForegroundColor White -BackgroundColor Magenta; \
+        Write-Host '' ; \
+        $currentCategory = ''; \
+        foreach ($line in $lines) { \
+            if ($line -match '^# ── ([^─]+) ─') { \
+                $currentCategory = $matches[1].Trim(); \
+                if ($currentCategory -ne 'Dashboard') { \
+                    Write-Host \"`n  $currentCategory\" -ForegroundColor Magenta; \
+                    Write-Host '  ' + ('─' * 45) -ForegroundColor Gray; \
+                } \
+            } elseif ($line -match '^# ([^─].+)') { \
+                $desc = $matches[1].Trim(); \
+                $idx = [array]::IndexOf($lines, $line); \
+                if ($idx -lt $lines.Count - 1) { \
+                    $nextLine = $lines[$idx + 1]; \
+                    if ($nextLine -match '^([a-z0-9-]+):') { \
+                        $recipe = $matches[1]; \
+                        $pad = ' ' * [math]::Max(2, (18 - $recipe.Length)); \
+                        Write-Host \"    $recipe\" -ForegroundColor White -NoNewline; \
+                        Write-Host \"$pad$desc\" -ForegroundColor Gray; \
+                    } \
+                } \
+            } \
+        } \
+        Write-Host \"`n  [System State: PROD/HARDENED]\" -ForegroundColor DarkGray; \
+        Write-Host ''"
 
-# ── Dev ──────────────────────────────────────────────────────────────────────
+help: default
 
-# Install all dependencies
-install:
-    {{UV}} sync
+# ── Infrastructure ──────────────────────────────────────────────────────────
 
-# Install with Prefab UI support (fastmcp[apps])
-install-apps:
-    {{UV}} sync --extra apps
-
-# Install with dev + test dependencies
-install-dev:
-    {{UV}} sync --extra dev
-
-# Start MCP backend only (port 10932)
-server:
-    {{PYTHON}} server.py
-
-# Start webapp only (port 10933)
-webapp:
-    cd webapp && npm run dev
-
-# Start both via start.ps1 (Windows — clears ports, opens browser)
-start:
-    powershell -ExecutionPolicy Bypass -File start.ps1
-
-# One-time first-time setup
+# One-time first-time setup (npm + uv)
 setup:
     powershell -ExecutionPolicy Bypass -File setup.ps1
 
-# ── Quality ───────────────────────────────────────────────────────────────────
+# Launch Control Plane (starts server + webapp)
+start:
+    powershell -ExecutionPolicy Bypass -File start.ps1
 
-# Lint
+# Start FastMCP backend only (10932)
+server:
+    {{PYTHON}} server.py
+
+# Start React oversight dashboard only (10933)
+webapp:
+    cd webapp && npm run dev
+
+# ── Quality ──────────────────────────────────────────────────────────────────
+
+# Execute Ruff v13.1 static analysis
 lint:
     {{UV}} run ruff check .
     {{UV}} run ruff format --check .
 
-# Format in place
-fmt:
+# Perform automated repair and formatting
+fix:
+    {{UV}} run ruff check --fix --unsafe-fixes .
     {{UV}} run ruff format .
-    {{UV}} run ruff check --fix .
 
-# Type check (non-blocking during adoption)
+# Perform static type analysis (Pyright)
 typecheck:
     {{UV}} run pyright openclaude/ server.py || true
 
-# ── Security ──────────────────────────────────────────────────────────────────
+# ── Hardening ────────────────────────────────────────────────────────────────
 
-# Static analysis security scan (Bandit + Semgrep)
+# Execute Bandit and Semgrep security scans
 check-sec:
     {{UV}} run bandit -r openclaude/ server.py -ll
     {{UV}} run semgrep --config p/security-audit --error .
 
-# Audit dependencies for CVEs
+# Audit Python and Node dependencies for CVEs
 audit-deps:
     {{UV}} run safety check
     cd webapp && npm audit

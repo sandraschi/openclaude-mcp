@@ -41,9 +41,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
-from openclaude.model_router import ModelRouter
-from openclaude.session import SessionStore, OpenClaudeSession
 from openclaude.kairos import KairosController
+from openclaude.model_router import ModelRouter
+from openclaude.session import OpenClaudeSession, SessionStore
 
 # ---------------------------------------------------------------------------
 # Core objects
@@ -64,7 +64,8 @@ BACKEND_PORT = int(os.environ.get("OPENCLAUDE_MCP_PORT", "10932"))
 fleet_app = FastMCPApp("fleet")
 
 try:
-    from prefab_ui.components import Column, Row, Text, Table, Badge  # type: ignore[import]
+    from prefab_ui.components import Badge, Column, Row, Table, Text  # type: ignore[import]
+
     _PREFAB_AVAILABLE = True
 except ImportError:
     _PREFAB_AVAILABLE = False
@@ -132,6 +133,7 @@ async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
 # FastMCP 3.2 — lifespan
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     print(f"openclaude-mcp starting on :{BACKEND_PORT}")
@@ -167,6 +169,7 @@ mcp.add_provider(fleet_app)
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
+
 
 async def _list_models(ctx: Context | None = None) -> dict[str, Any]:
     """List available Ollama models and their readiness for agentic tool use."""
@@ -224,8 +227,13 @@ async def _start_session(
     session.on_activity = lambda: kairos.record_activity(session_id)
     if enable_kairos:
         await kairos.attach(session_id)
-    return {"session_id": session_id, "model": model, "working_dir": working_dir,
-            "kairos": enable_kairos, "status": "started"}
+    return {
+        "session_id": session_id,
+        "model": model,
+        "working_dir": working_dir,
+        "kairos": enable_kairos,
+        "status": "started",
+    }
 
 
 async def _send_prompt(session_id: str, prompt: str, ctx: Context | None = None) -> dict[str, Any]:
@@ -302,8 +310,11 @@ async def _ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> 
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return {"error": "ANTHROPIC_API_KEY not set.", "status": "no_api_key",
-                "hint": "Set ANTHROPIC_API_KEY to use ULTRAPLAN. Local sessions work without it."}
+        return {
+            "error": "ANTHROPIC_API_KEY not set.",
+            "status": "no_api_key",
+            "hint": "Set ANTHROPIC_API_KEY to use ULTRAPLAN. Local sessions work without it.",
+        }
     session = sessions.get(session_id)
     if not session:
         return {"error": f"No session {session_id}"}
@@ -313,9 +324,7 @@ async def _ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> 
         "step-by-step implementation plan. Be specific about file paths, "
         "function signatures, and sequencing. Output the plan only — no preamble."
     )
-    user_message = (
-        f"Project: {snap['working_dir']}\nLocal model: {snap['model']}\n\nGoal: {goal}"
-    )
+    user_message = f"Project: {snap['working_dir']}\nLocal model: {snap['model']}\n\nGoal: {goal}"
     try:
         async with httpx.AsyncClient(timeout=1800) as client:
             response = await client.post(
@@ -338,11 +347,8 @@ async def _ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> 
         return {"error": f"Anthropic API {e.response.status_code}", "detail": e.response.text}
     except Exception as e:
         return {"error": str(e)}
-    feed_result = await session.send(
-        f"ULTRAPLAN — execute this plan step by step:\n\n{plan_text}"
-    )
-    return {"status": "ok", "session_id": session_id, "goal": goal,
-            "plan": plan_text, "session_feed": feed_result}
+    feed_result = await session.send(f"ULTRAPLAN — execute this plan step by step:\n\n{plan_text}")
+    return {"status": "ok", "session_id": session_id, "goal": goal, "plan": plan_text, "session_feed": feed_result}
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +392,7 @@ TOOL_REGISTRY: dict[str, Any] = {
 # REST route handlers
 # ---------------------------------------------------------------------------
 
+
 async def _rest_tool_handler(request: Request) -> JSONResponse:
     tool_name = request.path_params["tool_name"]
     fn = TOOL_REGISTRY.get(tool_name)
@@ -414,40 +421,45 @@ async def _health_handler(request: Request) -> JSONResponse:
             ollama_ok = r.status_code == 200
     except Exception:
         pass
-    return JSONResponse({
-        "status": "ok",
-        "ollama": ollama_ok,
-        "tools": list(TOOL_REGISTRY.keys()),
-        "default_model": model_router.default,
-        "active_sessions": len(sessions.all()),
-        "prefab_ui": _PREFAB_AVAILABLE,
-    })
+    return JSONResponse(
+        {
+            "status": "ok",
+            "ollama": ollama_ok,
+            "tools": list(TOOL_REGISTRY.keys()),
+            "default_model": model_router.default,
+            "active_sessions": len(sessions.all()),
+            "prefab_ui": _PREFAB_AVAILABLE,
+        }
+    )
 
 
 async def _capabilities_handler(request: Request) -> JSONResponse:
-    return JSONResponse({
-        "server": "openclaude-mcp",
-        "version": "0.1.0",
-        "fastmcp_version": "3.2.0",
-        "ports": {"backend": BACKEND_PORT, "webapp": BACKEND_PORT + 1},
-        "features": {
-            "session_management": True,
-            "model_routing": True,
-            "kairos": True,
-            "ultraplan": bool(os.environ.get("ANTHROPIC_API_KEY")),
-            "prefab_ui": _PREFAB_AVAILABLE,
-            "fleet_dashboard": True,
-        },
-        "supported_models": model_router.KNOWN_MODELS,
-        "ollama_base": OLLAMA_BASE,
-        "tools": list(TOOL_REGISTRY.keys()),
-    })
+    return JSONResponse(
+        {
+            "server": "openclaude-mcp",
+            "version": "0.1.0",
+            "fastmcp_version": "3.2.0",
+            "ports": {"backend": BACKEND_PORT, "webapp": BACKEND_PORT + 1},
+            "features": {
+                "session_management": True,
+                "model_routing": True,
+                "kairos": True,
+                "ultraplan": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                "prefab_ui": _PREFAB_AVAILABLE,
+                "fleet_dashboard": True,
+            },
+            "supported_models": model_router.KNOWN_MODELS,
+            "ollama_base": OLLAMA_BASE,
+            "tools": list(TOOL_REGISTRY.keys()),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Composite Starlette app
 # mcp.http_app(transport="sse") — FastMCP 3.2 SSE ASGI mount
 # ---------------------------------------------------------------------------
+
 
 def build_app() -> Starlette:
     mcp_asgi = mcp.http_app(transport="sse", path="/sse")

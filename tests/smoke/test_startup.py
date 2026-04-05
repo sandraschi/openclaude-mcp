@@ -6,10 +6,10 @@ No running server process required — uses Starlette TestClient.
 
 Run: just smoke
 """
+
 from __future__ import annotations
 
 import pytest
-
 
 pytestmark = pytest.mark.smoke
 
@@ -21,40 +21,54 @@ class TestServerImports:
 
     def test_tool_registry_populated(self):
         from server import TOOL_REGISTRY
+
         expected = {
-            "list_models", "set_default_model", "model_status",
-            "start_session", "send_prompt", "session_status",
-            "list_sessions", "stop_session",
-            "kairos_enable", "kairos_disable", "kairos_log",
-            "ultraplan", "fleet_status",
+            "list_models",
+            "set_default_model",
+            "model_status",
+            "start_session",
+            "send_prompt",
+            "session_status",
+            "list_sessions",
+            "stop_session",
+            "kairos_enable",
+            "kairos_disable",
+            "kairos_log",
+            "ultraplan",
+            "fleet_status",
         }
-        assert expected.issubset(set(TOOL_REGISTRY.keys())), (
-            f"Missing tools: {expected - set(TOOL_REGISTRY.keys())}"
-        )
+        assert expected.issubset(set(TOOL_REGISTRY.keys())), f"Missing tools: {expected - set(TOOL_REGISTRY.keys())}"
 
     def test_tool_registry_all_callable(self):
-        from server import TOOL_REGISTRY
         import asyncio
+
+        from server import TOOL_REGISTRY
+
         for name, fn in TOOL_REGISTRY.items():
             assert callable(fn), f"Tool {name} is not callable"
             assert asyncio.iscoroutinefunction(fn), f"Tool {name} is not async"
 
     def test_model_router_default_set(self):
         from server import model_router
+
         assert model_router.default == "gemma4:26b-a4b"
 
     def test_session_store_empty_on_import(self):
         from server import sessions
+
         assert sessions.all() == []
 
     def test_fastmcpapp_registered(self):
         """fleet_app must be added as provider to mcp."""
-        from server import mcp, fleet_app
+        from server import fleet_app
+
         assert fleet_app is not None
 
     def test_build_app_returns_starlette(self):
-        from server import build_app
         from starlette.applications import Starlette
+
+        from server import build_app
+
         app = build_app()
         assert isinstance(app, Starlette)
 
@@ -62,8 +76,10 @@ class TestServerImports:
 class TestSmokePing:
     @pytest.fixture(scope="class")
     def client(self):
-        from server import build_app
         from starlette.testclient import TestClient
+
+        from server import build_app
+
         with TestClient(build_app(), raise_server_exceptions=False) as c:
             yield c
 

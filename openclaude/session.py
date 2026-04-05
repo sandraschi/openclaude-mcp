@@ -23,10 +23,10 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 # Timeout waiting for EOT sentinel before giving up and returning partial output
 SEND_TIMEOUT_SECONDS = 120
@@ -62,28 +62,22 @@ class OpenClaudeSession:
         """Launch openclaude subprocess in the working directory."""
         # Security Hardening: Sanitize environment variables to prevent leaks.
         # We whitelist only essential variables and project-specific ones.
-        whitelist = {
-            "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
-            "LANG", "LC_ALL", "TERM", "TEMP", "TMP"
-        }
+        whitelist = {"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL", "TERM", "TEMP", "TMP"}
         # Include specific OpenClaude or Anthropic config if provided
         project_prefixes = ("OPENCLAUDE_", "ANTHROPIC_", "OLLAMA_")
-        
+
         full_env = {}
         for key, value in os.environ.items():
             if key in whitelist or key.startswith(project_prefixes):
                 full_env[key] = value
-        
+
         # Merge session-specific env overrides
         full_env.update(self.env)
-        
+
         self.working_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Audit Log (Red-Flag detection support)
-        print(f"[AUDIT] Starting session {self.session_id} - Model: {self.model}")
-        print(f"[AUDIT] CWD: {self.working_dir}")
-        print(f"[AUDIT] Environment: {list(full_env.keys())}")
-        
+
         try:
             self._process = await asyncio.create_subprocess_exec(
                 "openclaude",
@@ -99,8 +93,7 @@ class OpenClaudeSession:
         except FileNotFoundError:
             self._status = "error"
             self._last_output = (
-                "ERROR: 'openclaude' not found on PATH. "
-                "Install with: npm install -g @gitlawb/openclaude"
+                "ERROR: 'openclaude' not found on PATH. Install with: npm install -g @gitlawb/openclaude"
             )
         except Exception as e:
             self._status = "error"
@@ -169,7 +162,7 @@ class OpenClaudeSession:
                 await asyncio.wait_for(event.wait(), timeout=SEND_TIMEOUT_SECONDS)
                 response_lines = self._eot_buffers.get(sentinel, [])
                 response_text = "\n".join(response_lines) if response_lines else "(empty response)"
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 response_lines = self._eot_buffers.get(sentinel, [])
                 response_text = (
                     "\n".join(response_lines)
@@ -208,7 +201,7 @@ class OpenClaudeSession:
                 self._process.terminate()
                 try:
                     await asyncio.wait_for(self._process.wait(), timeout=5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self._process.kill()
         self._status = "stopped"
 

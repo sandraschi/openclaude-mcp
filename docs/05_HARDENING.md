@@ -64,6 +64,15 @@ As part of the project's **Safety Protocol**, forced pushes are prohibited to pr
     This script verifies that no force pushing (`+` ref) occurs during the push operation.
 - **Continuous Security (CI)**: Our `.github/workflows/security.yml` runs `semgrep` and `bandit` on every push to the main branch. Any detected security issue will block the merge if combined with branch protection status checks.
 
+## 5. Supply Chain Safety & Dependency Auditing
+
+Recent compromises in the `axios` ecosystem (March 2026) highlight the risks of supply chain attacks.
+
+- **Security Advisory**: See [06_SECURITY_ADVISORY_AXIOS.md](file:///D:/Dev/repos/openclaude-mcp/docs/06_SECURITY_ADVISORY_AXIOS.md) for details on the `axios@1.14.1` breach.
+- **Pinning Versions**: We recommend using exact version numbers in `package.json` for all dependencies in the `external/` folder.
+- **Lockfile Enforcement**: Never install dependencies without a verified `package-lock.json` or `yarn.lock`.
+- **Scheduled Audits**: Run `just audit-deps` regularly (which executes `npm audit` and `safety check`) to catch vulnerabilities before they are exploited.
+
 ---
 *Last Updated: 2026-04-05*
 *Status: HARDENED + PROTECTED*

@@ -1,14 +1,14 @@
 """tests/unit/test_kairos.py — unit tests for KairosController."""
+
 from __future__ import annotations
 
-import asyncio
 import time
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from openclaude.kairos import KairosController
-from openclaude.session import SessionStore, OpenClaudeSession
+import pytest
 
+from openclaude.kairos import KairosController
+from openclaude.session import OpenClaudeSession, SessionStore
 
 pytestmark = pytest.mark.unit
 

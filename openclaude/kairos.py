@@ -32,17 +32,31 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
 try:
-    from filelock import FileLock, Timeout as FileLockTimeout
+    from filelock import FileLock
+    from filelock import Timeout as FileLockTimeout
+
     _FILELOCK_AVAILABLE = True
 except ImportError:
     _FILELOCK_AVAILABLE = False
+
     # Graceful no-op fallback — install filelock: uv sync
     class FileLock:  # type: ignore[no-redef]
-        def __init__(self, path, timeout=10): self._path = path
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-    class FileLockTimeout(Exception): pass  # type: ignore[no-redef]
+        def __init__(self, path, timeout=10) -> None:
+            self._path = path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    class FileLockTimeout(Exception):
+        pass  # type: ignore[no-redef]
+
+
+import contextlib
 
 from openclaude.session import SessionStore
 
@@ -100,9 +114,7 @@ class KairosController:
         self._thresholds[session_id] = idle_threshold_seconds
         self._logs.setdefault(session_id, [])
         self._last_activity[session_id] = time.time()
-        self._tasks[session_id] = asyncio.create_task(
-            self._daemon_loop(session_id, idle_threshold_seconds)
-        )
+        self._tasks[session_id] = asyncio.create_task(self._daemon_loop(session_id, idle_threshold_seconds))
         return {
             "session_id": session_id,
             "kairos": "enabled",
@@ -114,10 +126,8 @@ class KairosController:
         task = self._tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         return {"session_id": session_id, "kairos": "disabled"}
 
     async def get_log(self, session_id: str, lines: int = 50) -> dict[str, Any]:
@@ -148,17 +158,14 @@ class KairosController:
             idle_seconds = int(time.time() - last_active)
 
             if idle_seconds < idle_threshold:
-                self._log(
-                    log, session_id,
-                    f"Active ({idle_seconds}s idle, threshold {idle_threshold}s). Watching."
-                )
+                self._log(log, session_id, f"Active ({idle_seconds}s idle, threshold {idle_threshold}s). Watching.")
                 continue
 
             # Idle threshold reached — attempt autoDream consolidation
             self._log(
-                log, session_id,
-                f"Idle for {idle_seconds}s. Starting autoDream consolidation "
-                f"#{consolidation_count + 1}..."
+                log,
+                session_id,
+                f"Idle for {idle_seconds}s. Starting autoDream consolidation #{consolidation_count + 1}...",
             )
             try:
                 result = await self._consolidate(session, log)
@@ -169,9 +176,10 @@ class KairosController:
                 else:
                     consolidation_count += 1
                     self._log(
-                        log, session_id,
+                        log,
+                        session_id,
                         f"Consolidation #{consolidation_count} complete. "
-                        f"MEMORY.md updated ({result.get('memory_length', '?')} chars)."
+                        f"MEMORY.md updated ({result.get('memory_length', '?')} chars).",
                     )
                 # Reset idle clock regardless so we don't immediately re-trigger
                 self._last_activity[session_id] = time.time()

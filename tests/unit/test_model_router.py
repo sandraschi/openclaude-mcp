@@ -1,8 +1,9 @@
 """tests/unit/test_model_router.py — unit tests for ModelRouter."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from openclaude.model_router import ModelRouter
 
+
+import pytest
+
+from openclaude.model_router import ModelRouter
 
 pytestmark = pytest.mark.unit
 
@@ -21,8 +22,17 @@ class TestModelRouterInit:
 
     def test_known_models_have_required_fields(self):
         r = ModelRouter()
-        required = {"label", "active_params_b", "total_params_b", "vram_q4_gb",
-                    "est_toks", "context_k", "tool_calling", "license", "notes"}
+        required = {
+            "label",
+            "active_params_b",
+            "total_params_b",
+            "vram_q4_gb",
+            "est_toks",
+            "context_k",
+            "tool_calling",
+            "license",
+            "notes",
+        }
         for tag, meta in r.KNOWN_MODELS.items():
             for field in required:
                 assert field in meta, f"Model {tag} missing field {field}"

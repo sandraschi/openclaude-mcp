@@ -7,15 +7,15 @@ Prerequisites:
 Run: just test-e2e
 Skip in CI if prerequisites unavailable:  pytest -m "not e2e"
 """
+
 from __future__ import annotations
 
-import asyncio
 import shutil
 import time
-import pytest
 from pathlib import Path
-from starlette.testclient import TestClient
 
+import pytest
+from starlette.testclient import TestClient
 
 pytestmark = pytest.mark.e2e
 
@@ -25,6 +25,7 @@ OLLAMA_BASE = "http://localhost:11434"
 def _ollama_available() -> bool:
     try:
         import httpx
+
         r = httpx.get(f"{OLLAMA_BASE}/api/tags", timeout=3)
         return r.status_code == 200
     except Exception:
@@ -48,6 +49,7 @@ skip_if_no_openclaude = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def client():
     from server import build_app
+
     with TestClient(build_app(), raise_server_exceptions=False) as c:
         yield c
 
@@ -56,9 +58,7 @@ def client():
 def workdir(tmp_path: Path) -> Path:
     """Minimal Python project for the agent to work in."""
     (tmp_path / "main.py").write_text('def hello():\n    return "hello"\n')
-    (tmp_path / "test_main.py").write_text(
-        'from main import hello\ndef test_hello():\n    assert hello() == "hello"\n'
-    )
+    (tmp_path / "test_main.py").write_text('from main import hello\ndef test_hello():\n    assert hello() == "hello"\n')
     return tmp_path
 
 
@@ -68,10 +68,13 @@ class TestSessionLifecycle:
     def test_full_lifecycle(self, client, workdir):
         """Start → prompt → status → stop."""
         # Start session
-        r = client.post("/tools/start_session", json={
-            "working_dir": str(workdir),
-            "model_tag": "gemma4:26b-a4b",
-        })
+        r = client.post(
+            "/tools/start_session",
+            json={
+                "working_dir": str(workdir),
+                "model_tag": "gemma4:26b-a4b",
+            },
+        )
         assert r.status_code == 200
         data = r.json()
         assert "session_id" in data
@@ -89,10 +92,13 @@ class TestSessionLifecycle:
             assert snap["session_id"] == session_id
 
             # Send a simple prompt
-            r = client.post("/tools/send_prompt", json={
-                "session_id": session_id,
-                "prompt": "List the Python files in this directory",
-            })
+            r = client.post(
+                "/tools/send_prompt",
+                json={
+                    "session_id": session_id,
+                    "prompt": "List the Python files in this directory",
+                },
+            )
             assert r.status_code == 200
             result = r.json()
             assert "output" in result or "error" in result
@@ -121,22 +127,31 @@ class TestSessionLifecycle:
     @skip_if_no_openclaude
     def test_kairos_creates_memory_md(self, client, workdir):
         """KAIROS daemon creates MEMORY.md after idle threshold."""
-        r = client.post("/tools/start_session", json={
-            "working_dir": str(workdir),
-            "enable_kairos": True,
-        })
+        r = client.post(
+            "/tools/start_session",
+            json={
+                "working_dir": str(workdir),
+                "enable_kairos": True,
+            },
+        )
         session_id = r.json()["session_id"]
         try:
             # Enable KAIROS with very short threshold for test
-            client.post("/tools/kairos_enable", json={
-                "session_id": session_id,
-                "idle_threshold_seconds": 5,
-            })
+            client.post(
+                "/tools/kairos_enable",
+                json={
+                    "session_id": session_id,
+                    "idle_threshold_seconds": 5,
+                },
+            )
             # Send a prompt to generate some output
-            client.post("/tools/send_prompt", json={
-                "session_id": session_id,
-                "prompt": "What files are in this directory?",
-            })
+            client.post(
+                "/tools/send_prompt",
+                json={
+                    "session_id": session_id,
+                    "prompt": "What files are in this directory?",
+                },
+            )
             # Wait for KAIROS idle threshold + consolidation
             time.sleep(40)  # 30s poll interval + 5s threshold + buffer
             # Check log has entries

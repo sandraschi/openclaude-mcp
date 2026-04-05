@@ -3,13 +3,11 @@
 Requires: server imports cleanly (no Ollama needed for most tests).
 Marked `integration` — run with: just test-integration
 """
+
 from __future__ import annotations
 
 import pytest
-import json
-from unittest.mock import AsyncMock, patch, MagicMock
 from starlette.testclient import TestClient
-
 
 pytestmark = pytest.mark.integration
 
@@ -18,6 +16,7 @@ pytestmark = pytest.mark.integration
 def client():
     """Starlette test client wrapping the full composite app."""
     from server import build_app
+
     app = build_app()
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
@@ -106,8 +105,7 @@ class TestToolEndpoints:
         assert "gemma4:26b-a4b" in data["known_models"]
 
     def test_set_default_model(self, client):
-        r = client.post("/tools/set_default_model",
-                        json={"model_tag": "qwen3.5:35b-a3b"})
+        r = client.post("/tools/set_default_model", json={"model_tag": "qwen3.5:35b-a3b"})
         assert r.status_code == 200
         data = r.json()
         assert data["default"] == "qwen3.5:35b-a3b"
@@ -116,15 +114,13 @@ class TestToolEndpoints:
         client.post("/tools/set_default_model", json={"model_tag": "gemma4:26b-a4b"})
 
     def test_session_status_nonexistent(self, client):
-        r = client.post("/tools/session_status",
-                        json={"session_id": "doesnotexist"})
+        r = client.post("/tools/session_status", json={"session_id": "doesnotexist"})
         assert r.status_code == 200
         data = r.json()
         assert "error" in data
 
     def test_stop_session_nonexistent(self, client):
-        r = client.post("/tools/stop_session",
-                        json={"session_id": "doesnotexist"})
+        r = client.post("/tools/stop_session", json={"session_id": "doesnotexist"})
         assert r.status_code == 200
         data = r.json()
         assert "error" in data
@@ -137,16 +133,14 @@ class TestToolEndpoints:
 
     def test_ultraplan_no_api_key(self, client, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        r = client.post("/tools/ultraplan",
-                        json={"session_id": "x", "goal": "test"})
+        r = client.post("/tools/ultraplan", json={"session_id": "x", "goal": "test"})
         assert r.status_code == 200
         data = r.json()
         assert data.get("status") == "no_api_key"
 
     def test_kairos_enable_nonexistent_session(self, client):
         """Kairos enable on a nonexistent session should succeed (daemon just watches)."""
-        r = client.post("/tools/kairos_enable",
-                        json={"session_id": "ghost", "idle_threshold_seconds": 60})
+        r = client.post("/tools/kairos_enable", json={"session_id": "ghost", "idle_threshold_seconds": 60})
         assert r.status_code == 200
         data = r.json()
         assert data.get("kairos") in ("enabled", "already_running")
@@ -162,9 +156,7 @@ class TestToolEndpoints:
 
     def test_post_with_empty_body_works(self, client):
         """Empty body should default to {} args."""
-        r = client.post("/tools/list_sessions",
-                        content=b"",
-                        headers={"Content-Type": "application/json"})
+        r = client.post("/tools/list_sessions", content=b"", headers={"Content-Type": "application/json"})
         assert r.status_code == 200
 
     def test_post_with_no_content_type(self, client):
