@@ -33,7 +33,8 @@ from typing import Any
 
 import httpx
 import uvicorn
-from fastmcp import FastMCP, Context, FastMCPApp
+from fastmcp import Context, FastMCP
+from fastmcp.apps import FastMCPApp
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -114,7 +115,7 @@ async def fleet_dashboard(ctx: Context) -> Any:
 
 
 @fleet_app.tool(model=True, description="Get raw fleet status data")
-async def fleet_status() -> dict[str, Any]:
+async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
     """Backend tool — also visible to the model (model=True)."""
     all_sessions = sessions.all()
     model_data = await model_router.list_models()
@@ -477,4 +478,4 @@ if __name__ == "__main__":
     print(f"  REST tools:   http://localhost:{BACKEND_PORT}/tools/{{name}}")
     print(f"  Health:       http://localhost:{BACKEND_PORT}/api/health")
     print(f"  Capabilities: http://localhost:{BACKEND_PORT}/api/capabilities")
-    uvicorn.run(build_app(), host="0.0.0.0", port=BACKEND_PORT, log_level="info")
+    uvicorn.run(build_app(), host="127.0.0.1", port=BACKEND_PORT, log_level="info")

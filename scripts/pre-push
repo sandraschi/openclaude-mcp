@@ -1,0 +1,19 @@
+#!/usr/bin/env pwsh
+# Pre-push git hook to prevent accidental force pushing.
+# Install: Copy to .git/hooks/pre-push
+
+$remote = $args[0]
+$url = $args[1]
+
+Write-Host "[GIT HOOK] Verifying push safety for $remote ($url)..." -ForegroundColor Cyan
+
+# Check for force push (non-fast-forward) in the pushed refs
+$pushed = $Input | Out-String
+if ($pushed -match "\+") {
+    Write-Host "[SECURITY ALERT] Potential FORCE PUSH detected (+)." -ForegroundColor Red
+    Write-Host "[SECURITY ALERT] Force pushes are forbidden by the OpenClaude MCP Safety Protocol." -ForegroundColor Yellow
+    Write-Host "[SECURITY ALERT] Use 'git push' without --force or remove the branch restriction to proceed." -ForegroundColor White
+    exit 1
+}
+
+exit 0

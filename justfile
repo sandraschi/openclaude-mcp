@@ -53,7 +53,19 @@ fmt:
 
 # Type check (non-blocking during adoption)
 typecheck:
-    {{UV}} run ty check openclaude/ server.py || true
+    {{UV}} run pyright openclaude/ server.py || true
+
+# ── Security ──────────────────────────────────────────────────────────────────
+
+# Static analysis security scan (Bandit + Semgrep)
+check-sec:
+    {{UV}} run bandit -r openclaude/ server.py -ll
+    {{UV}} run semgrep --config p/security-audit --error .
+
+# Audit dependencies for CVEs
+audit-deps:
+    {{UV}} run safety check
+    cd webapp && npm audit
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 

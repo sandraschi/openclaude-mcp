@@ -29,9 +29,13 @@ Based on deep analysis of the repository. All three technical debt items fixed 2
   and write (Prune) phases. Timeout 10s — if the lock can't be acquired the cycle is skipped and
   logged rather than corrupting the file. `filelock>=3.13.0` added to `pyproject.toml` deps.
 
+- [x] Resolve `FastMCPApp` import error in `server.py`.
+- [x] Fix `fleet_status` `TypeError` (missing `ctx`) in REST handler.
+- [x] Run full test suite: `just test` (or qualified `pytest` in venv) — **Passed (73 passed, 3 skipped)**.
+
 ## Remaining
 
 - [ ] Finalize testing of ULTRAPLAN handoffs from cloud to local.
 - [ ] Complete OpenClaude Node.js wrapper integration tracking (npm install @gitlawb/openclaude).
-- [ ] Run full test suite: `just test` — was blocked by winops timeout issue during scaffolding.
+- [x] Run full test suite: `just test` — **Passed 2026-04-05**.
 - [ ] Verify EOT sentinel round-trip with real openclaude once it's on PATH.

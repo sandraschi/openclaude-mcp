@@ -34,7 +34,7 @@ $backend = Start-Process -FilePath $uvPath `
 Write-Host "MCP backend started (pid $($backend.Id)) on :$BackendPort" -ForegroundColor Green
 
 # Start webapp
-$webapp = Start-Process -FilePath "npm" `
+$null = Start-Process -FilePath "npm" `
     -ArgumentList "run", "dev" `
     -WorkingDirectory "$RepoDir\webapp" `
     -PassThru -WindowStyle Minimized
@@ -52,7 +52,7 @@ while ($waited -lt $maxWait) {
         Start-Process "http://localhost:$WebPort"
         break
     } catch {
-        Write-Host "Waiting for webapp ($waited s)..." -ForegroundColor Gray
+        Write-Host "Waiting for webapp (${waited}s)..." -ForegroundColor Gray
     }
 }
 
