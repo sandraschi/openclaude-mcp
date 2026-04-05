@@ -20,6 +20,9 @@ The March 31, 2026 leak of the Claude Code harness exposed Anthropic's most adva
 
 ## 🚀 Quick Start
 
+> [!IMPORTANT]
+> **Prerequisite:** This MCP server acts exclusively as a control plane. You **must** have the underlying harness installed locally on your PC for it to function. Running `.\setup.ps1` will automatically install the `@gitlawb/openclaude` community fork globally via npm.
+
 ```powershell
 # 1. One-time setup (installs deps + openclaude npm package)
 .\setup.ps1
