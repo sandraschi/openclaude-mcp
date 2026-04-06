@@ -15,12 +15,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ sessionId }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom on new output
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [session?.last_output]);
+  }, [session?.messages.length]);
 
   if (!session) {
     return (
@@ -92,14 +92,23 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ sessionId }) => {
           className="flex-1 overflow-y-auto p-6 font-mono text-sm leading-relaxed space-y-2 selection:bg-amber-500/30"
         >
           <AnimatePresence mode="popLayout">
-            {session.last_output?.split('\n').map((line, i) => (
+            {session.messages.map((msg, i) => (
               <motion.div 
-                key={`${sessionId}-line-${i}`}
-                initial={{ opacity: 0, x: -4 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="text-zinc-300 break-words whitespace-pre-wrap"
+                key={`${sessionId}-msg-${i}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'} mb-4`}
               >
-                {line || ' '}
+                <div className={`text-[10px] uppercase tracking-wider font-bold ${msg.role === 'user' ? 'text-amber-500/50' : 'text-zinc-500'}`}>
+                  {msg.role}
+                </div>
+                <div className={`max-w-[90%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${
+                  msg.role === 'user' 
+                    ? 'bg-amber-500/10 border border-amber-500/20 text-amber-100' 
+                    : 'bg-zinc-900 border border-zinc-800 text-zinc-300'
+                }`}>
+                  {msg.content}
+                </div>
               </motion.div>
             ))}
           </AnimatePresence>
@@ -117,7 +126,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ sessionId }) => {
             </div>
           )}
 
-          {isRunning && (!session.last_output || session.last_output.trim() === '') && (
+          {isRunning && session.messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-zinc-600 gap-4">
               <TerminalIcon size={32} className="opacity-20" />
               <p className="text-sm">Session ready. Type your first prompt below.</p>

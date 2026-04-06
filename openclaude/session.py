@@ -69,6 +69,7 @@ class OpenClaudeSession:
     _last_output: str = field(default="", init=False, repr=False)
     _status: str = field(default="pending", init=False, repr=False)
     _output_buffer: list[str] = field(default_factory=list, init=False, repr=False)
+    _messages: list[dict[str, str]] = field(default_factory=list, init=False, repr=False)
 
     # Per-turn signalling: event set when turn_complete/result arrives
     # Only one send() at a time is supported (openclaude is sequential per session).
@@ -368,6 +369,11 @@ class OpenClaudeSession:
             self._process.stdin.write(payload.encode("utf-8"))
             await self._process.stdin.drain()
 
+            # Optimistically add user message to history
+            self._messages.append({"role": "user", "content": prompt})
+            if len(self._messages) > 100: # Slightly larger buffer for history
+                self._messages = self._messages[-100:]
+
             # Wait for turn_complete or timeout
             try:
                 await asyncio.wait_for(self._turn_event.wait(), timeout=SEND_TIMEOUT_SECONDS)
@@ -378,6 +384,12 @@ class OpenClaudeSession:
                 response_text = "\n".join(self._turn_response_lines).strip()
                 if not response_text:
                     response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s — model may still be processing)"
+
+            # Store assistant response
+            if response_text:
+                self._messages.append({"role": "assistant", "content": response_text})
+                if len(self._messages) > 100:
+                    self._messages = self._messages[-100:]
 
             logger.info(f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} response blocks)")
             self._last_output = "\n".join(self._output_buffer[-50:])
@@ -427,6 +439,7 @@ class OpenClaudeSession:
             "last_output_preview": self._last_output[:500] if self._last_output else "",
             "pid": self._process.pid if self._process else None,
             "output_lines": len(self._output_buffer),
+            "messages": self._messages,
         }
 
 

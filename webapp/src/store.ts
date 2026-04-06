@@ -14,6 +14,7 @@ export interface Session {
   elapsed_seconds: number
   last_output_preview: string
   last_output: string
+  messages: { role: 'user' | 'assistant'; content: string }[]
   pid: number | null
 }
 
@@ -116,9 +117,9 @@ export const useStore = create<Store>((set, get) => ({
   setSelectedSessionId: (id) => set({ selectedSessionId: id }),
   sendPrompt: async (sessionId, prompt) => {
     try {
+      // Refresh to show output including the last assistant response
       await api.sendPrompt(sessionId, prompt)
-      // Refresh to show output
-      get().fetchSessions()
+      await get().fetchSessions()
     } catch (e: any) {
       get().toast(e.message, 'err')
     }

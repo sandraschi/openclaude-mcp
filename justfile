@@ -180,8 +180,8 @@ webapp-build:
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
-# Full pipeline: validate → pack → inspect
-pack: mcpb-validate mcpb-pack mcpb-inspect
+# Full pipeline: validate → pack
+pack: mcpb-validate mcpb-pack
 
 # Build MCPB bundle
 mcpb-pack:
@@ -190,10 +190,6 @@ mcpb-pack:
 # Validate manifest
 mcpb-validate:
     mcpb validate manifest.json
-
-# Inspect built bundle
-mcpb-inspect:
-    mcpb inspect dist/{{NAME}}-v{{VER}}.mcpb
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
