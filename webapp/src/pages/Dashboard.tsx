@@ -8,7 +8,7 @@ function StatCard({
   label: string
   value: string | number
   sub?: string
-  icon: React.FC<{ size?: number; className?: string }>
+  icon: any
   accent?: boolean
 }) {
   return (

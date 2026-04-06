@@ -9,10 +9,11 @@ export interface Session {
   session_id: string
   model: string
   working_dir: string
-  status: 'pending' | 'running' | 'stopped'
+  status: 'pending' | 'provisioning' | 'running' | 'stopped'
   kairos_enabled: boolean
   elapsed_seconds: number
   last_output_preview: string
+  last_output: string
   pid: number | null
 }
 
@@ -30,7 +31,7 @@ export interface ModelInfo {
   is_default: boolean
 }
 
-export type Page = 'dashboard' | 'sessions' | 'models' | 'kairos' | 'help' | 'settings'
+export type Page = 'dashboard' | 'sessions' | 'models' | 'kairos' | 'logs' | 'help' | 'settings'
 
 // ---------------------------------------------------------------------------
 // Store
@@ -44,6 +45,10 @@ interface Store {
   sessionsLoading: boolean
   fetchSessions: () => Promise<void>
   stopSession: (id: string) => Promise<void>
+  
+  selectedSessionId: string | null
+  setSelectedSessionId: (id: string | null) => void
+  sendPrompt: (sessionId: string, prompt: string) => Promise<void>
 
   models: Record<string, ModelInfo>
   defaultModel: string
@@ -60,10 +65,18 @@ interface Store {
   newSessionDir: string
   newSessionModel: string
   newSessionKairos: boolean
+  newSessionSafetyMode: string
+  newSessionCustomGuardrails: string
+  sessionStarting: boolean
   setNewSessionDir: (v: string) => void
   setNewSessionModel: (v: string) => void
   setNewSessionKairos: (v: boolean) => void
+  setNewSessionSafetyMode: (v: string) => void
+  setNewSessionCustomGuardrails: (v: string) => void
   startSession: () => Promise<void>
+
+  systemLogs: string[]
+  fetchSystemLogs: () => Promise<void>
 
   toasts: { id: string; msg: string; type: 'ok' | 'err' }[]
   toast: (msg: string, type?: 'ok' | 'err') => void
@@ -99,6 +112,17 @@ export const useStore = create<Store>((set, get) => ({
       get().toast(e.message, 'err')
     }
   },
+  selectedSessionId: null,
+  setSelectedSessionId: (id) => set({ selectedSessionId: id }),
+  sendPrompt: async (sessionId, prompt) => {
+    try {
+      await api.sendPrompt(sessionId, prompt)
+      // Refresh to show output
+      get().fetchSessions()
+    } catch (e: any) {
+      get().toast(e.message, 'err')
+    }
+  },
 
   // ── Models ────────────────────────────────────────────────────────────────
   models: {},
@@ -108,7 +132,6 @@ export const useStore = create<Store>((set, get) => ({
   fetchModels: async () => {
     set({ modelsLoading: true })
     try {
-      // Use health endpoint for backend + ollama status
       const health = await getHealth().catch(() => null)
       const r = await api.listModels()
       set({
@@ -117,7 +140,7 @@ export const useStore = create<Store>((set, get) => ({
         ollamaRunning: health?.ollama ?? r.ollama_running ?? false,
       })
     } catch (e: any) {
-      get().toast('Could not reach MCP backend — is server.py running?', 'err')
+      get().toast('Could not reach MCP backend', 'err')
     } finally {
       set({ modelsLoading: false })
     }
@@ -161,26 +184,57 @@ export const useStore = create<Store>((set, get) => ({
   newSessionDir: '',
   newSessionModel: '',
   newSessionKairos: false,
+  newSessionSafetyMode: 'none',
+  newSessionCustomGuardrails: '',
+  sessionStarting: false,
   setNewSessionDir: (v) => set({ newSessionDir: v }),
   setNewSessionModel: (v) => set({ newSessionModel: v }),
   setNewSessionKairos: (v) => set({ newSessionKairos: v }),
+  setNewSessionSafetyMode: (v) => set({ newSessionSafetyMode: v }),
+  setNewSessionCustomGuardrails: (v) => set({ newSessionCustomGuardrails: v }),
   startSession: async () => {
-    const { newSessionDir, newSessionModel, newSessionKairos } = get()
-    if (!newSessionDir.trim()) {
-      get().toast('Working directory is required', 'err')
-      return
-    }
+    const { 
+      newSessionDir, newSessionModel, newSessionKairos, 
+      newSessionSafetyMode, newSessionCustomGuardrails,
+      sessionStarting 
+    } = get()
+    if (sessionStarting) return
+
+    set({ sessionStarting: true })
     try {
       const r = await api.startSession(
-        newSessionDir.trim(),
+        newSessionDir.trim() || 'D:/Dev/repos/claude-code-1',
         newSessionModel || undefined,
         newSessionKairos,
+        newSessionSafetyMode,
+        newSessionCustomGuardrails.trim() || undefined,
       )
-      get().toast(`Session ${r.session_id} started (${r.model})`, 'ok')
-      set({ newSessionDir: '', newSessionModel: '', newSessionKairos: false })
+      get().toast(`Session ${r.session_id} started`, 'ok')
+      set({ 
+        newSessionDir: '', 
+        newSessionModel: '', 
+        newSessionKairos: false,
+        newSessionSafetyMode: 'none',
+        newSessionCustomGuardrails: '',
+        selectedSessionId: r.session_id 
+      })
       get().fetchSessions()
     } catch (e: any) {
       get().toast(e.message, 'err')
+    } finally {
+      set({ sessionStarting: false })
+    }
+  },
+
+  // ── System Logs ──────────────────────────────────────────────────────────
+  systemLogs: [],
+  fetchSystemLogs: async () => {
+    try {
+      const r = await api.getSystemLogs()
+      set({ systemLogs: r.lines ?? [] })
+    } catch (e: any) {
+      // Don't toast for log fetch failures to avoid spam
+      console.error('System log fetch failed:', e)
     }
   },
 

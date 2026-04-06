@@ -59,6 +59,9 @@ except ImportError:
 import contextlib
 
 from openclaude.session import SessionStore
+from openclaude.logging_util import get_logger
+
+logger = get_logger("kairos")
 
 OLLAMA_BASE = "http://localhost:11434"
 LOCK_TIMEOUT = 10  # seconds to wait for MEMORY.md lock before giving up
@@ -131,11 +134,10 @@ class KairosController:
         return {"session_id": session_id, "kairos": "disabled"}
 
     async def get_log(self, session_id: str, lines: int = 50) -> dict[str, Any]:
-        log = self._logs.get(session_id, [])
         return {
             "session_id": session_id,
-            "lines": log[-lines:],
-            "total_entries": len(log),
+            "lines": [], # Deprecated in favor of global logger
+            "total_entries": 0,
         }
 
     # -------------------------------------------------------------------------
@@ -151,44 +153,31 @@ class KairosController:
 
             session = self._sessions.get(session_id)
             if not session or session.snapshot()["status"] != "running":
-                self._log(log, session_id, "Session gone or stopped. KAIROS exiting.")
+                logger.info(f"[{session_id}] Session gone or stopped. KAIROS exiting.")
                 break
 
             last_active = self._last_activity.get(session_id, time.time())
             idle_seconds = int(time.time() - last_active)
 
             if idle_seconds < idle_threshold:
-                self._log(log, session_id, f"Active ({idle_seconds}s idle, threshold {idle_threshold}s). Watching.")
+                # logger.debug(...) to avoid noise, but for now we keep it quiet
                 continue
 
             # Idle threshold reached — attempt autoDream consolidation
-            self._log(
-                log,
-                session_id,
-                f"Idle for {idle_seconds}s. Starting autoDream consolidation #{consolidation_count + 1}...",
-            )
+            logger.info(f"[{session_id}] Idle for {idle_seconds}s. Starting autoDream consolidation #{consolidation_count + 1}...")
             try:
                 result = await self._consolidate(session, log)
                 if result.get("skipped"):
                     pass  # already logged inside _consolidate
                 elif result.get("aborted"):
-                    self._log(log, session_id, "Consolidation aborted — session became active.")
+                    logger.info(f"[{session_id}] Consolidation aborted — session became active.")
                 else:
                     consolidation_count += 1
-                    self._log(
-                        log,
-                        session_id,
-                        f"Consolidation #{consolidation_count} complete. "
-                        f"MEMORY.md updated ({result.get('memory_length', '?')} chars).",
-                    )
+                    logger.info(f"[{session_id}] Consolidation #{consolidation_count} complete. MEMORY.md updated ({result.get('memory_length', '?')} chars).")
                 # Reset idle clock regardless so we don't immediately re-trigger
                 self._last_activity[session_id] = time.time()
             except Exception as e:
-                self._log(log, session_id, f"Consolidation error: {e}")
-
-    def _log(self, log: list, session_id: str, msg: str) -> None:
-        ts = time.strftime("%H:%M:%S")
-        log.append(f"[{ts}] KAIROS [{session_id}]: {msg}")
+                logger.error(f"[{session_id}] Consolidation error: {e}")
 
     async def _consolidate(self, session, log: list) -> dict[str, Any]:
         """
@@ -213,14 +202,14 @@ class KairosController:
                     memory_content = "# Project Memory\n\n(no entries yet)\n"
                     memory_path.write_text(memory_content, encoding="utf-8")
         except FileLockTimeout:
-            self._log(log, session.session_id, "Could not acquire MEMORY.md lock — skipping.")
+            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock — skipping.")
             return {"skipped": True}
 
         # 2. Gather — collect recent session output
         snap = session.snapshot()
         observations = snap.get("last_output_preview", "")
         if not observations:
-            self._log(log, session.session_id, "No new observations to consolidate. Skipping.")
+            logger.info(f"[{session.session_id}] No new observations to consolidate. Skipping.")
             return {"skipped": True}
 
         # 3. Consolidate — Ollama call (potentially long)
@@ -261,7 +250,7 @@ class KairosController:
             with FileLock(str(lock_path), timeout=LOCK_TIMEOUT):
                 memory_path.write_text(updated_memory, encoding="utf-8")
         except FileLockTimeout:
-            self._log(log, session.session_id, "Could not acquire MEMORY.md lock for write — skipping.")
+            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock for write — skipping.")
             return {"skipped": True}
 
         return {"memory_length": len(updated_memory), "model": model}

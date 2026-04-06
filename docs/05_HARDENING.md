@@ -73,6 +73,26 @@ Recent compromises in the `axios` ecosystem (March 2026) highlight the risks of 
 - **Lockfile Enforcement**: Never install dependencies without a verified `package-lock.json` or `yarn.lock`.
 - **Scheduled Audits**: Run `just audit-deps` regularly (which executes `npm audit` and `safety check`) to catch vulnerabilities before they are exploited.
 
+## 6. Runtime & Startup Hardening (v2)
+
+To move from "functional prototype" to "industrial control plane," we implemented the v2 Hardening suite on 2026-04-06.
+
+### A. Self-Healing Startup (`start.ps1`)
+The startup orchestration now performs a pre-flight audit of all dependencies:
+- **Python Check**: Runs `uv sync --check`. If it fails, it attempts a full `uv sync`.
+- **Lockfile Recovery**: Detects and clears `.venv` folder locks (often caused by orphaned `uv` processes from previous crashes).
+- **Node.js Audit**: Verifies `node_modules` existence and runs `npm install` automatically if missing.
+
+### B. Stable Process Invocation & Dashboards
+Directly invoking `npm` or `node` within a PowerShell `Start-Process` block can result in silent failures on Windows due to shell-wrapping issues.
+- **Node Fix**: We now use `Start-Process "cmd.exe" -ArgumentList "/c npm run dev"` to ensure a stable shell context.
+- **Justfile Fix**: The `default` (help) recipe was updated with escaped dollar signs (`$$`) to prevent PowerShell from prematurely expanding variables during `just` execution, ensuring the dashboard renders correctly on Windows.
+
+### C. Network Interface Binding
+Vite's default behavior can sometimes results in "Localhost" resolution hangs on Windows systems with complex IPv6/VPN configurations.
+- **Fix**: Configured `webapp/vite.config.ts` with `server: { host: true }`.
+- **Result**: Forces binding to `0.0.0.0`, ensuring the webapp is immediately reachable on all local interfaces as soon as the dev server is ready.
+
 ---
-*Last Updated: 2026-04-05*
-*Status: HARDENED + PROTECTED*
+*Last Updated: 2026-04-06*
+*Status: HARDENED + SELF-HEALING (v2)*

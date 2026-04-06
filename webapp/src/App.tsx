@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   LayoutDashboard, Terminal, Cpu, Brain, Settings, BookOpen,
-  ChevronRight, CheckCircle, XCircle,
+  ChevronRight, CheckCircle, XCircle, Activity,
 } from 'lucide-react'
 import { useStore, Page } from './store'
 import { Dashboard } from './pages/Dashboard'
@@ -11,12 +11,14 @@ import { Models } from './pages/Models'
 import { Kairos } from './pages/Kairos'
 import { SettingsPage } from './pages/SettingsPage'
 import { HelpPage } from './pages/HelpPage'
+import { LoggerPage } from './pages/LoggerPage'
 
-const NAV: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[] = [
+const NAV: { id: Page; label: string; Icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { id: 'sessions', label: 'Sessions', Icon: Terminal },
   { id: 'models', label: 'Models', Icon: Cpu },
   { id: 'kairos', label: 'KAIROS', Icon: Brain },
+  { id: 'logs', label: 'Logs', Icon: Activity },
   { id: 'help', label: 'Help', Icon: BookOpen },
   { id: 'settings', label: 'Settings', Icon: Settings },
 ]
@@ -115,6 +117,7 @@ function PageContent() {
     sessions: <Sessions />,
     models: <Models />,
     kairos: <Kairos />,
+    logs: <LoggerPage />,
     help: <HelpPage />,
     settings: <SettingsPage />,
   }

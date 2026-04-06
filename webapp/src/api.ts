@@ -44,7 +44,15 @@ export const api = {
     working_dir: string,
     model_tag?: string,
     enable_kairos = false,
-  ) => callTool('start_session', { working_dir, ...(model_tag ? { model_tag } : {}), enable_kairos }),
+    safety_mode = 'none',
+    custom_guardrails?: string,
+  ) => callTool('start_session', { 
+    working_dir, 
+    ...(model_tag ? { model_tag } : {}), 
+    enable_kairos,
+    safety_mode,
+    ...(custom_guardrails ? { custom_guardrails } : {})
+  }),
   sendPrompt: (session_id: string, prompt: string) =>
     callTool('send_prompt', { session_id, prompt }),
   sessionStatus: (session_id: string) =>
@@ -64,4 +72,7 @@ export const api = {
   // ULTRAPLAN
   ultraplan: (session_id: string, goal: string) =>
     callTool('ultraplan', { session_id, goal }),
+
+  // System Logs
+  getSystemLogs: () => fetch(`${BASE}/api/logs/system`).then((r) => r.json()),
 }

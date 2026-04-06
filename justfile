@@ -1,122 +1,105 @@
-# openclaude-mcp — SOTA Industrial Dashboard (Windows/PowerShell)
-#
-# Rule: JUST-SOTA-2026-04
-# Standard: PowerShell 7.4+ core-compliant
-
 set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
-
-REPO   := "D:/Dev/repos/openclaude-mcp"
-UV     := "C:/Users/sandr/.local/bin/uv.exe"
-PYTHON := UV + " run python"
-NAME   := "openclaude-mcp"
-VER    := "0.1.0"
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 # Display the SOTA Industrial Dashboard
 default:
-    @powershell -NoLogo -Command " \
-        $lines = Get-Content '{{justfile()}}'; \
-        Write-Host ' [OCP] OpenClaude Control Plane Dashboard v{{VER}}' -ForegroundColor White -BackgroundColor Magenta; \
-        Write-Host '' ; \
-        $currentCategory = ''; \
-        foreach ($line in $lines) { \
-            if ($line -match '^# ── ([^─]+) ─') { \
-                $currentCategory = $matches[1].Trim(); \
-                if ($currentCategory -ne 'Dashboard') { \
-                    Write-Host \"`n  $currentCategory\" -ForegroundColor Magenta; \
-                    Write-Host '  ' + ('─' * 45) -ForegroundColor Gray; \
-                } \
-            } elseif ($line -match '^# ([^─].+)') { \
-                $desc = $matches[1].Trim(); \
-                $idx = [array]::IndexOf($lines, $line); \
-                if ($idx -lt $lines.Count - 1) { \
-                    $nextLine = $lines[$idx + 1]; \
-                    if ($nextLine -match '^([a-z0-9-]+):') { \
-                        $recipe = $matches[1]; \
-                        $pad = ' ' * [math]::Max(2, (18 - $recipe.Length)); \
-                        Write-Host \"    $recipe\" -ForegroundColor White -NoNewline; \
-                        Write-Host \"$pad$desc\" -ForegroundColor Gray; \
-                    } \
+    @$lines = Get-Content '{{justfile()}}'; \
+    Write-Host ' [SOTA] Industrial Operations Dashboard v1.3.2' -ForegroundColor White -BackgroundColor Cyan; \
+    Write-Host '' ; \
+    $currentCategory = ''; \
+    foreach ($line in $lines) { \
+        if ($line -match '^# ── ([^─]+) ─') { \
+            $currentCategory = $matches[1].Trim(); \
+            Write-Host "`n  $currentCategory" -ForegroundColor Cyan; \
+            Write-Host ('  ' + ('─' * 45)) -ForegroundColor Gray; \
+        } elseif ($line -match '^# ([^─].+)') { \
+            $desc = $matches[1].Trim(); \
+            $idx = [array]::IndexOf($lines, $line); \
+            if ($idx -lt $lines.Count - 1) { \
+                $nextLine = $lines[$idx + 1]; \
+                if ($nextLine -match '^([a-z0-9-]+):') { \
+                    $recipe = $matches[1]; \
+                    $pad = ' ' * [math]::Max(2, (18 - $recipe.Length)); \
+                    Write-Host "    $recipe" -ForegroundColor White -NoNewline; \
+                    Write-Host "$pad$desc" -ForegroundColor Gray; \
                 } \
             } \
         } \
-        Write-Host \"`n  [System State: PROD/HARDENED]\" -ForegroundColor DarkGray; \
-        Write-Host ''"
+    } \
+    Write-Host "`n  [System State: PROD/HARDENED]" -ForegroundColor DarkGray; \
+    Write-Host ''
 
-help: default
+# ── Operation ─────────────────────────────────────────────────────────────────
 
-# ── Infrastructure ──────────────────────────────────────────────────────────
+# Project Automation
+# ---------------------------------------------------------------------------
 
-# One-time first-time setup (npm + uv)
-setup:
-    powershell -ExecutionPolicy Bypass -File setup.ps1
+# Run the MCP backend + REST bridge on fleet port 10932
+serve:
+    uv run python server.py
 
-# Launch Control Plane (starts server + webapp)
+# Run in stdio mode for Claude Desktop / Cursor
+stdio:
+    uv run python server.py --transport stdio
+
+# Run the React webapp
+webapp:
+    cd webapp && npm run dev -- --port 10933
+
+# Start both via start.ps1 (Windows — clears ports, opens browser)
 start:
     powershell -ExecutionPolicy Bypass -File start.ps1
 
-# Start FastMCP backend only (10932)
-server:
-    {{PYTHON}} server.py
+# One-time first-time setup
+setup:
+    powershell -ExecutionPolicy Bypass -File setup.ps1
 
-# Start React oversight dashboard only (10933)
-webapp:
-    cd webapp && npm run dev
+# ── Quality ───────────────────────────────────────────────────────────────────
 
-# ── Quality ──────────────────────────────────────────────────────────────────
-
-# Execute Ruff v13.1 static analysis
+# Execute Ruff SOTA v13.1 linting
 lint:
-    {{UV}} run ruff check .
-    {{UV}} run ruff format --check .
+    uv run ruff check .
+    uv run ruff format --check .
 
-# Perform automated repair and formatting
+# Execute Ruff SOTA v13.1 fix and formatting
 fix:
-    {{UV}} run ruff check --fix --unsafe-fixes .
-    {{UV}} run ruff format .
+    uv run ruff check . --fix --unsafe-fixes
+    uv run ruff format .
 
-# Perform static type analysis (Pyright)
+# Type check (non-blocking during adoption)
 typecheck:
-    {{UV}} run pyright openclaude/ server.py || true
+    uv run pyright openclaude/ server.py || true
 
-# ── Hardening ────────────────────────────────────────────────────────────────
+# ── Security ──────────────────────────────────────────────────────────────────
 
-# Execute Bandit and Semgrep security scans
+# Static analysis security scan (Bandit + Semgrep)
 check-sec:
-    {{UV}} run bandit -r openclaude/ server.py -ll
-    {{UV}} run semgrep --config p/security-audit --error .
+    uv run bandit -r openclaude/ server.py -ll
+    uv run semgrep --config p/security-audit --error .
 
-# Audit Python and Node dependencies for CVEs
+# Audit dependencies for CVEs
 audit-deps:
-    {{UV}} run safety check
+    uv run safety check
     cd webapp && npm audit
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
 # Run all tests
 test:
-    {{UV}} run pytest tests/ -v
+    uv run pytest tests/ -v
 
 # Unit tests only (fast, no I/O)
 test-unit:
-    {{UV}} run pytest tests/unit/ -v
+    uv run pytest tests/unit/ -v
 
 # Integration tests (requires Ollama running)
 test-integration:
-    {{UV}} run pytest tests/integration/ -v -m integration
-
-# Smoke test (start server, hit /api/health, stop)
-smoke:
-    {{UV}} run pytest tests/smoke/ -v -m smoke
-
-# E2E test (full session lifecycle, requires Ollama + openclaude on PATH)
-test-e2e:
-    {{UV}} run pytest tests/e2e/ -v -m e2e
+    uv run pytest tests/integration/ -v -m integration
 
 # All tests with coverage
 test-cov:
-    {{UV}} run pytest tests/ -v --tb=short --cov=openclaude --cov=server --cov-report=term-missing
+    uv run pytest tests/ -v --tb=short --cov=openclaude --cov=server --cov-report=term-missing
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -141,9 +124,12 @@ webapp-build:
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
+# Full packaging pipeline: validate → pack → inspect
+pack: mcpb-validate mcpb-pack mcpb-inspect
+
 # Build MCPB bundle for Claude Desktop
 mcpb-pack:
-    mcpb pack . dist/{{NAME}}-v{{VER}}.mcpb
+    mcpb pack . dist/openclaude-v0.1.0.mcpb
 
 # Validate the manifest before packing
 mcpb-validate:
@@ -151,10 +137,7 @@ mcpb-validate:
 
 # Inspect a built bundle
 mcpb-inspect:
-    mcpb inspect dist/{{NAME}}-v{{VER}}.mcpb
-
-# Full packaging pipeline: validate → pack → inspect
-pack: mcpb-validate mcpb-pack mcpb-inspect
+    mcpb inspect dist/openclaude-v0.1.0.mcpb
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 

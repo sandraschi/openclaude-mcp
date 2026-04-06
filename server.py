@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import traceback
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +33,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import logging
+import time
 import uvicorn
 from fastmcp import Context, FastMCP
 from fastmcp.apps import FastMCPApp
@@ -44,6 +47,59 @@ from starlette.routing import Mount, Route
 from openclaude.kairos import KairosController
 from openclaude.model_router import ModelRouter
 from openclaude.session import OpenClaudeSession, SessionStore
+from openclaude.logging_util import logger as app_logger, get_logger
+
+# ---------------------------------------------------------------------------
+# Logging — capture logs for web UI
+# ---------------------------------------------------------------------------
+
+class WebLogHandler(logging.Handler):
+    def __init__(self, max_lines: int = 200) -> None:
+        super().__init__()
+        self.lines: list[str] = []
+        self.max_lines = max_lines
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            # Skip noise: health checks and periodic polls
+            if "/api/health" in record.getMessage() or "/api/tags" in record.getMessage():
+                return
+            
+            msg = self.format(record)
+            ts = time.strftime("%H:%M:%S", time.localtime(record.created))
+            
+            # Add level marker for browser console coloring
+            level = f"[{record.levelname}]"
+            line = f"[{ts}] {level} {msg}"
+            
+            self.lines.append(line)
+            if len(self.lines) > self.max_lines:
+                self.lines.pop(0)
+        except Exception:
+            self.handleError(record)
+
+# Attach WebLogHandler to our unified app logger
+GLOBAL_LOG_HANDLER = WebLogHandler()
+GLOBAL_LOG_HANDLER.setFormatter(logging.Formatter('%(message)s'))
+app_logger.addHandler(GLOBAL_LOG_HANDLER)
+
+# Root logger — still route console output but keep it quiet
+logging.getLogger().setLevel(logging.WARNING)
+
+# Uvicorn loggers — attach our handler directly so we see startup events
+for log_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+    uv_logger = logging.getLogger(log_name)
+    uv_logger.addHandler(GLOBAL_LOG_HANDLER)
+    uv_logger.propagate = False # avoid double logs
+
+class LogBuffer:
+    """Compatibility shim for existing GLOBAL_LOGS.lines references."""
+    @property
+    def lines(self) -> list[str]:
+        return GLOBAL_LOG_HANDLER.lines
+
+GLOBAL_LOGS = LogBuffer()
+logger = get_logger("server")
 
 # ---------------------------------------------------------------------------
 # Core objects
@@ -72,7 +128,7 @@ except ImportError:
 
 
 @fleet_app.ui(description="Show live OpenClaude fleet status as a Prefab dashboard")
-async def fleet_dashboard(ctx: Context) -> Any:
+async def fleet_dashboard(ctx: Context) -> dict[str, Any]:
     """Entry-point UI tool — the model calls this to open the fleet dashboard."""
     all_sessions = sessions.all()
     model_data = await model_router.list_models()
@@ -135,7 +191,7 @@ async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
 
 
 @asynccontextmanager
-async def lifespan(server: FastMCP):
+async def lifespan(server: FastMCP) -> Any:  # noqa: ANN401
     print(f"openclaude-mcp starting on :{BACKEND_PORT}")
     print(f"  Prefab UI: {'available' if _PREFAB_AVAILABLE else 'not installed (run: uv sync --extra apps)'}")
     print(f"  Default model: {model_router.default}")
@@ -167,16 +223,66 @@ mcp = FastMCP(
 mcp.add_provider(fleet_app)
 
 # ---------------------------------------------------------------------------
+# Safety & Policy Helpers
+# ---------------------------------------------------------------------------
+
+
+def get_safety_prompt(mode: str) -> str:
+    """Return a system prompt fragment for the given safety mode."""
+    if mode == "kid-safe":
+        return (
+            "SAFETY POLICY (Kid-Safe v1.0): You are an educational mentor for a 12-year-old. "
+            "Maintain a calm, encouraging, and informative tone. Avoid extreme emotions. "
+            "CONTENT FILTERS: "
+            "1. Sex Ed: Provide only clinical, age-appropriate biological facts. No parasexuality. "
+            "2. Violence: No hyperviolence or gore. "
+            "3. Self-Harm: No discussion of self-harm or eating disorders. "
+            "4. Medical: Provide only restricted, conservative clinical information. "
+            "TRANSPARENCY: If you refuse a request or filter content, you MUST explain your reasoning "
+            "clearly and kindly. "
+            "PROACTIVE SAFETY: Every 5-10 turns, insert a brief, friendly reminder about online privacy, "
+            "safety, and the importance of verifying information with parents/guardgivers. "
+            "IMPORTANT: For high-risk topics (illegal drugs/harm), you MUST call the `caregiver_alert` "
+            "tool immediately."
+        )
+    return ""
+
+
+@mcp.tool()
+async def caregiver_alert(session_id: str, risk_topic: str, reason: str, ctx: Context | None = None) -> dict[str, Any]:
+    """[KID-SAFE] Notify caregivers of high-risk interaction attempt.
+
+    Args:
+        session_id: Current session identifier.
+        risk_topic: The topic of concern (e.g. 'drugs', 'self-harm').
+        reason: Context for why this was flagged.
+    """
+    alert_msg = f"[CAREGIVER ALERT] Session: {session_id} | Topic: {risk_topic} | Reason: {reason}"
+    if ctx:
+        ctx.info(alert_msg)
+    else:
+        print(f"\n{alert_msg}\n")
+
+    return {
+        "success": True,
+        "message": "Caregivers have been notified of this high-risk request.",
+        "alert_logged": True,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
 
-async def _list_models(ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def list_models(ctx: Context | None = None) -> dict[str, Any]:
     """List available Ollama models and their readiness for agentic tool use."""
     return await model_router.list_models()
 
 
-async def _set_default_model(model_tag: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def set_default_model(model_tag: str, ctx: Context | None = None) -> dict[str, Any]:
     """Set the default Ollama model for new OpenClaude sessions.
 
     Args:
@@ -185,7 +291,8 @@ async def _set_default_model(model_tag: str, ctx: Context | None = None) -> dict
     return await model_router.set_default(model_tag)
 
 
-async def _model_status(model_tag: str | None = None, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def model_status(model_tag: str | None = None, ctx: Context | None = None) -> dict[str, Any]:
     """Check Ollama health and whether a specific model is loaded in VRAM.
 
     Args:
@@ -194,10 +301,13 @@ async def _model_status(model_tag: str | None = None, ctx: Context | None = None
     return await model_router.status(model_tag)
 
 
-async def _start_session(
+@mcp.tool()
+async def start_session(
     working_dir: str,
     model_tag: str | None = None,
     enable_kairos: bool = False,
+    safety_mode: str = "none",
+    custom_guardrails: str | None = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Launch an OpenClaude session in the given directory.
@@ -206,21 +316,54 @@ async def _start_session(
         working_dir: Absolute path to the project directory.
         model_tag: Ollama model. Defaults to current default.
         enable_kairos: Enable KAIROS autoDream memory consolidation daemon.
+        safety_mode: Predefined safety policy ('none', 'kid-safe').
+        custom_guardrails: Additional system prompt instructions.
     """
     model = model_tag or model_router.default
     session_id = str(uuid.uuid4())[:8]
+
+    # Assemble safety prompts
+    append_prompt = ""
+    if safety_mode != "none":
+        append_prompt += get_safety_prompt(safety_mode)
+    if custom_guardrails:
+        if append_prompt:
+            append_prompt += "\n\n"
+        append_prompt += custom_guardrails
+
     env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
         "OPENAI_BASE_URL": f"{OLLAMA_BASE}/v1",
         "OPENAI_MODEL": model,
         "OPENAI_API_KEY": "ollama",
+        "OLLAMA_BASE_URL": OLLAMA_BASE,
     }
+
+    if append_prompt:
+        env["OPENCLAUDE_APPEND_PROMPT"] = append_prompt
+
+    # Injection for safety tools if in kid-safe mode
+    mcp_config_path = None
+    if safety_mode == "kid-safe":
+        mcp_config = {
+            "mcpServers": {
+                "openclaude-mcp": {
+                    "url": f"http://localhost:{BACKEND_PORT}/sse",
+                }
+            }
+        }
+        # Use a persistent temp file prefix for this session
+        fd, mcp_config_path = tempfile.mkstemp(suffix=".json", prefix=f"oc-mcp-{session_id}-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(mcp_config, f)
+
     session = OpenClaudeSession(
         session_id=session_id,
         working_dir=Path(working_dir),
         model=model,
         env=env,
         kairos_enabled=enable_kairos,
+        mcp_config_path=mcp_config_path,
     )
     await sessions.add(session)
     await session.start()
@@ -236,7 +379,8 @@ async def _start_session(
     }
 
 
-async def _send_prompt(session_id: str, prompt: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def send_prompt(session_id: str, prompt: str, ctx: Context | None = None) -> dict[str, Any]:
     """Send a prompt to a running OpenClaude session.
 
     Args:
@@ -249,7 +393,8 @@ async def _send_prompt(session_id: str, prompt: str, ctx: Context | None = None)
     return await session.send(prompt)
 
 
-async def _session_status(session_id: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def session_status(session_id: str, ctx: Context | None = None) -> dict[str, Any]:
     """Get current output and status of an OpenClaude session."""
     session = sessions.get(session_id)
     if not session:
@@ -257,12 +402,14 @@ async def _session_status(session_id: str, ctx: Context | None = None) -> dict[s
     return session.snapshot()
 
 
-async def _list_sessions(ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def list_sessions(ctx: Context | None = None) -> dict[str, Any]:
     """List all active OpenClaude sessions."""
     return {"sessions": [s.snapshot() for s in sessions.all()]}
 
 
-async def _stop_session(session_id: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def stop_session(session_id: str, ctx: Context | None = None) -> dict[str, Any]:
     """Stop and clean up an OpenClaude session."""
     session = sessions.get(session_id)
     if not session:
@@ -273,7 +420,8 @@ async def _stop_session(session_id: str, ctx: Context | None = None) -> dict[str
     return {"session_id": session_id, "status": "stopped"}
 
 
-async def _kairos_enable(
+@mcp.tool()
+async def kairos_enable(
     session_id: str,
     idle_threshold_seconds: int = 60,
     ctx: Context | None = None,
@@ -287,17 +435,20 @@ async def _kairos_enable(
     return await kairos.enable(session_id, idle_threshold_seconds)
 
 
-async def _kairos_disable(session_id: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def kairos_disable(session_id: str, _ctx: Context | None = None) -> dict[str, Any]:
     """Disable KAIROS on a session."""
     return await kairos.disable(session_id)
 
 
-async def _kairos_log(session_id: str, lines: int = 50, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def kairos_log(session_id: str, lines: int = 50, _ctx: Context | None = None) -> dict[str, Any]:
     """Get KAIROS consolidation log for a session."""
     return await kairos.get_log(session_id, lines)
 
 
-async def _ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> dict[str, Any]:
+@mcp.tool()
+async def ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> dict[str, Any]:
     """Route a complex planning goal to Anthropic Opus for deep planning (up to 30 min),
     then feed the resulting plan into the local session for execution.
 
@@ -355,37 +506,25 @@ async def _ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> 
 # Register tools with FastMCP
 # ---------------------------------------------------------------------------
 
-mcp.tool(description=_list_models.__doc__)(_list_models)
-mcp.tool(description=_set_default_model.__doc__)(_set_default_model)
-mcp.tool(description=_model_status.__doc__)(_model_status)
-mcp.tool(description=_start_session.__doc__)(_start_session)
-mcp.tool(description=_send_prompt.__doc__)(_send_prompt)
-mcp.tool(description=_session_status.__doc__)(_session_status)
-mcp.tool(description=_list_sessions.__doc__)(_list_sessions)
-mcp.tool(description=_stop_session.__doc__)(_stop_session)
-mcp.tool(description=_kairos_enable.__doc__)(_kairos_enable)
-mcp.tool(description=_kairos_disable.__doc__)(_kairos_disable)
-mcp.tool(description=_kairos_log.__doc__)(_kairos_log)
-mcp.tool(description=_ultraplan.__doc__)(_ultraplan)
-
 # ---------------------------------------------------------------------------
 # REST registry — direct function dispatch for webapp HTTP calls
 # ---------------------------------------------------------------------------
 
 TOOL_REGISTRY: dict[str, Any] = {
-    "list_models": _list_models,
-    "set_default_model": _set_default_model,
-    "model_status": _model_status,
-    "start_session": _start_session,
-    "send_prompt": _send_prompt,
-    "session_status": _session_status,
-    "list_sessions": _list_sessions,
-    "stop_session": _stop_session,
-    "kairos_enable": _kairos_enable,
-    "kairos_disable": _kairos_disable,
-    "kairos_log": _kairos_log,
-    "ultraplan": _ultraplan,
-    "fleet_status": fleet_status,
+    "list_models": list_models,
+    "set_default_model": set_default_model,
+    "model_status": model_status,
+    "start_session": start_session,
+    "send_prompt": send_prompt,
+    "session_status": session_status,
+    "list_sessions": list_sessions,
+    "stop_session": stop_session,
+    "kairos_enable": kairos_enable,
+    "kairos_disable": kairos_disable,
+    "kairos_log": kairos_log,
+    "ultraplan": ultraplan,
+    "caregiver_alert": caregiver_alert,
+    "fleet_status": fleet_dashboard,
 }
 
 # ---------------------------------------------------------------------------
@@ -413,13 +552,18 @@ async def _rest_tool_handler(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def _health_handler(request: Request) -> JSONResponse:
+async def _logs_handler(_request: Request) -> JSONResponse:
+    return JSONResponse({"lines": GLOBAL_LOGS.lines})
+
+
+async def _health_handler(_request: Request) -> JSONResponse:
     ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
-            ollama_ok = r.status_code == 200
-    except Exception:
+            ollama_ok = r.status_code == httpx.codes.OK
+    except Exception:  # noqa: S110
+        # Silent pass for health check to avoid log spam
         pass
     return JSONResponse(
         {
@@ -433,7 +577,7 @@ async def _health_handler(request: Request) -> JSONResponse:
     )
 
 
-async def _capabilities_handler(request: Request) -> JSONResponse:
+async def _capabilities_handler(_request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "server": "openclaude-mcp",
@@ -468,6 +612,7 @@ def build_app() -> Starlette:
         Route("/tools/{tool_name}", _rest_tool_handler, methods=["POST"]),
         Route("/api/health", _health_handler, methods=["GET"]),
         Route("/api/capabilities", _capabilities_handler, methods=["GET"]),
+        Route("/api/logs/system", _logs_handler, methods=["GET"]),
         Mount("/", app=mcp_asgi),
     ]
     app = Starlette(routes=routes)

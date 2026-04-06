@@ -1,26 +1,37 @@
 """
 Session lifecycle — start/stop/snapshot OpenClaude subprocesses.
 
-OpenClaude is a Node.js CLI. It runs interactively, reading prompts from
-stdin and writing responses to stdout.
+OpenClaude is a Node.js CLI that implements the Claude Code SDK wire protocol:
+- stdin:  NDJSON lines, each a StdinMessage (type: 'user' | 'control_response' | ...)
+- stdout: NDJSON lines, each a StdoutMessage (type: 'assistant' | 'system' | 'result' | ...)
 
---- Bug fixes (ref: TODO.md, 2026-04-05) ---
+Key message types we care about:
+  stdin  → {"type":"user","session_id":"","message":{"role":"user","content":"..."},"parent_tool_use_id":null}
+  stdout ← {"type":"assistant","message":{...}}        — model response chunks
+  stdout ← {"type":"system","subtype":"turn_complete"} — turn is done
+  stdout ← {"type":"result","subtype":"success",...}   — print-mode final result
 
-Fix 1 — EOT sentinel (replaces fragile time-based stabilisation heuristic):
-  We append a unique sentinel string to every prompt. The background reader
-  watches for it and signals an asyncio.Event the moment it appears. This
-  means send() returns immediately when the response is complete rather than
-  polling for 3 seconds of output silence, which was both slow and broken for
-  slow models that pause mid-response.
+The subprocess is launched with --print so it runs in SDK/non-interactive mode
+and exits after each turn (or stays alive if we keep piping — print mode stays
+alive as long as stdin stays open in piped mode).
 
-  Sentinel format:  __OC_EOT_<session_id>__
-  It is appended after the user prompt separated by a newline, so openclaude
-  echoes it back at the end of its reply. We strip it from the output.
+--- History ---
+
+v1 (2026-04-05): EOT sentinel approach — BROKEN. openclaude calls JSON.parse()
+  on every stdin line. Sending a raw "__OC_EOT__" string causes JSON.parse()
+  to throw and the process calls process.exit(1). This is why no responses
+  were ever received.
+
+v2 (2026-04-06): NDJSON protocol — correct. User messages sent as JSON objects,
+  turn completion detected by watching for 'system'/'turn_complete' or
+  'result'/'success' stdout messages.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import time
 from collections.abc import Callable
@@ -28,8 +39,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Timeout waiting for EOT sentinel before giving up and returning partial output
-SEND_TIMEOUT_SECONDS = 120
+from openclaude.logging_util import get_logger
+
+logger = get_logger("session")
+
+# Timeout waiting for turn_complete before giving up and returning partial output.
+# gemma4:26b cold-loads from disk in ~77s on Goliath — keep headroom above that.
+SEND_TIMEOUT_SECONDS = 180
+
+# Default paths for zero-friction startup
+OPENCLAUDE_DIR = Path(r"D:\Dev\repos\external\openclaude")
+DEFAULT_WORKING_DIR = Path(r"D:\Dev\repos\claude-code-1")
 
 
 @dataclass
@@ -39,6 +59,7 @@ class OpenClaudeSession:
     model: str
     env: dict[str, str]
     kairos_enabled: bool = False
+    mcp_config_path: str | None = None
 
     # Optional activity callback — set by server after session creation
     on_activity: Callable | None = field(default=None, init=False, repr=False)
@@ -49,160 +70,348 @@ class OpenClaudeSession:
     _status: str = field(default="pending", init=False, repr=False)
     _output_buffer: list[str] = field(default_factory=list, init=False, repr=False)
 
-    # EOT signalling: maps sentinel_string → asyncio.Event
-    _eot_events: dict[str, asyncio.Event] = field(default_factory=dict, init=False, repr=False)
-    # Per-sentinel capture buffer: maps sentinel_string → lines collected since send()
-    _eot_buffers: dict[str, list[str]] = field(default_factory=dict, init=False, repr=False)
+    # Per-turn signalling: event set when turn_complete/result arrives
+    # Only one send() at a time is supported (openclaude is sequential per session).
+    _turn_event: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    _turn_response_lines: list[str] = field(default_factory=list, init=False, repr=False)
+    _turn_in_flight: bool = field(default=False, init=False, repr=False)
 
-    @property
-    def _sentinel(self) -> str:
-        return f"__OC_EOT_{self.session_id}__"
+    # -------------------------------------------------------------------------
+    # Provisioning helpers
+    # -------------------------------------------------------------------------
+
+    async def _install_bun(self) -> None:
+        """Detect and install Bun if missing."""
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                "bun --version", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await proc.wait()
+            if proc.returncode == 0:
+                return
+        except Exception:
+            pass
+
+        self._last_output = "Provisioning: Bun missing. Installing via PowerShell..."
+        install_cmd = 'powershell -c "irm bun.sh/install.ps1|iex"'
+        proc = await asyncio.create_subprocess_shell(
+            install_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Bun installation failed: {stdout.decode()}")
+
+        bun_bin = Path(os.environ.get("USERPROFILE", "")) / ".bun" / "bin"
+        if bun_bin.exists():
+            path = os.environ.get("PATH", "")
+            if str(bun_bin) not in path:
+                os.environ["PATH"] = f"{bun_bin};{path}"
+
+        self._last_output = "Provisioning: Bun installed successfully."
+
+    async def _run_build(self) -> None:
+        """Run the build command to generate dist/cli.mjs."""
+        self._last_output = "Provisioning: Building OpenClaude (npm run build)..."
+        proc = await asyncio.create_subprocess_exec(
+            "npm",
+            "run",
+            "build",
+            cwd=str(OPENCLAUDE_DIR),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=os.environ.copy(),
+        )
+        if proc.stdout:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                decoded = line.decode(errors="replace").strip()
+                if decoded:
+                    self._last_output = f"Provisioning (Build): {decoded}"
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError("OpenClaude build failed. Check logs.")
+        self._last_output = "Provisioning: Build completed successfully."
+
+    async def _check_provisioning(self) -> None:
+        """Ensure dependencies are installed and project is built."""
+        if not OPENCLAUDE_DIR.exists():
+            raise FileNotFoundError(f"OpenClaude clone not found at {OPENCLAUDE_DIR}")
+
+        node_modules = OPENCLAUDE_DIR / "node_modules"
+        if not node_modules.exists():
+            self._last_output = "Provisioning: Running 'npm install'..."
+            proc = await asyncio.create_subprocess_exec(
+                "npm",
+                "install",
+                cwd=str(OPENCLAUDE_DIR),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                raise RuntimeError(f"npm install failed: {stdout.decode()}")
+            self._last_output = "Provisioning: npm dependencies installed."
+
+        dist_file = OPENCLAUDE_DIR / "dist" / "cli.mjs"
+        if not dist_file.exists():
+            await self._install_bun()
+            await self._run_build()
+
+    def _resolve_command(self) -> list[str]:
+        """Resolve the best way to run OpenClaude, preferring the built MJS."""
+        dist_mjs = OPENCLAUDE_DIR / "dist" / "cli.mjs"
+        if dist_mjs.exists():
+            return ["node", str(dist_mjs)]
+
+        entrypoint = OPENCLAUDE_DIR / "src" / "entrypoints" / "cli.tsx"
+        if entrypoint.exists():
+            return ["npx", "tsx", str(entrypoint)]
+
+        return ["openclaude"]  # Global fallback
+
+    # -------------------------------------------------------------------------
+    # Startup
+    # -------------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Launch openclaude subprocess in the working directory."""
-        # Security Hardening: Sanitize environment variables to prevent leaks.
-        # We whitelist only essential variables and project-specific ones.
-        whitelist = {"PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL", "TERM", "TEMP", "TMP"}
-        # Include specific OpenClaude or Anthropic config if provided
-        project_prefixes = ("OPENCLAUDE_", "ANTHROPIC_", "OLLAMA_")
+        """Kick off provisioning and startup in a background task."""
+        if str(self.working_dir) in (".", "", "None"):
+            self.working_dir = DEFAULT_WORKING_DIR
 
-        full_env = {}
-        for key, value in os.environ.items():
-            if key in whitelist or key.startswith(project_prefixes):
-                full_env[key] = value
+        self._status = "provisioning"
+        logger.info(f"[{self.session_id}] Starting session (working_dir: {self.working_dir})")
+        asyncio.create_task(self._startup_sequence())
 
-        # Merge session-specific env overrides
-        full_env.update(self.env)
-
-        self.working_dir.mkdir(parents=True, exist_ok=True)
-
-        # Audit Log (Red-Flag detection support)
-
+    async def _startup_sequence(self) -> None:
+        """Internal sequence: Provision -> Launch."""
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                "openclaude",
+            await self._check_provisioning()
+
+            # Security: whitelist-based env var filtering
+            whitelist = {
+                "PATH",
+                "HOME",
+                "USERPROFILE",
+                "APPDATA",
+                "LOCALAPPDATA",
+                "LANG",
+                "LC_ALL",
+                "TERM",
+                "TEMP",
+                "TMP",
+            }
+            project_prefixes = ("OPENCLAUDE_", "ANTHROPIC_", "OLLAMA_")
+
+            full_env = {}
+            for key, value in os.environ.items():
+                if key in whitelist or key.startswith(project_prefixes):
+                    full_env[key] = value
+
+            full_env.update(self.env)
+            self.working_dir.mkdir(parents=True, exist_ok=True)
+
+            cmd = self._resolve_command()
+            # Protocol flags for SDK/non-interactive piped mode:
+            # --print:                    non-interactive mode (read from stdin, exit when done)
+            # --input-format=stream-json: treat stdin as NDJSON SDKUserMessage stream
+            # --output-format=stream-json: write NDJSON SDKMessage stream to stdout
+            # --verbose:                  required by openclaude when using stream-json output
+            cmd_full = [
+                *cmd,
+                "--print",
+                "--input-format=stream-json",
+                "--output-format=stream-json",
+                "--verbose",
                 "--dangerously-skip-permissions",
+            ]
+            if self.mcp_config_path:
+                cmd_full.extend(["--mcp-config", self.mcp_config_path])
+            
+            logger.info(f"[{self.session_id}] Executing: {' '.join(cmd_full)}")
+            self._last_output = f"Starting session: {' '.join(cmd_full)}"
+
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd_full,
                 cwd=str(self.working_dir),
                 env=full_env,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.PIPE,  # Separate stderr so it doesn't pollute NDJSON stdout
             )
             self._status = "running"
-            asyncio.create_task(self._read_output())
-        except FileNotFoundError:
-            self._status = "error"
-            self._last_output = (
-                "ERROR: 'openclaude' not found on PATH. Install with: npm install -g @gitlawb/openclaude"
-            )
+            logger.info(f"[{self.session_id}] Process started (pid: {self._process.pid})")
+            asyncio.create_task(self._read_stdout())
+            asyncio.create_task(self._drain_stderr())
+
         except Exception as e:
             self._status = "error"
-            self._last_output = f"ERROR: {e}"
+            self._last_output = f"STARTUP ERROR: {e}"
 
-    async def _read_output(self) -> None:
-        """Background task: continuously read stdout, signal EOT events."""
-        if not self._process:
+    # -------------------------------------------------------------------------
+    # Output readers
+    # -------------------------------------------------------------------------
+
+    async def _drain_stderr(self) -> None:
+        """Drain stderr into the log buffer (doesn't affect NDJSON stdout)."""
+        if not self._process or not self._process.stderr:
             return
         try:
             while True:
-                line = await self._process.stdout.readline()
+                line = await self._process.stderr.readline()
                 if not line:
                     break
                 decoded = line.decode(errors="replace").rstrip()
+                if decoded:
+                    self._output_buffer.append(f"[stderr] {decoded}")
+                    if len(self._output_buffer) > 200:
+                        self._output_buffer = self._output_buffer[-200:]
+                    self._last_output = "\n".join(self._output_buffer[-50:])
+        except Exception:
+            pass
 
-                # Check if this line contains any pending EOT sentinel
-                for sentinel, event in list(self._eot_events.items()):
-                    if sentinel in decoded:
-                        # Strip the sentinel from the line before buffering
-                        clean = decoded.replace(sentinel, "").strip()
-                        if clean and sentinel in self._eot_buffers:
-                            self._eot_buffers[sentinel].append(clean)
-                        event.set()
-                        continue
-                    # Normal line — append to this sentinel's capture buffer
-                    if sentinel in self._eot_buffers:
-                        self._eot_buffers[sentinel].append(decoded)
+    async def _read_stdout(self) -> None:
+        """Background task: read NDJSON stdout, collect turn responses, signal completion."""
+        if not self._process or not self._process.stdout:
+            return
+        try:
+            while True:
+                line_bytes = await self._process.stdout.readline()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode(errors="replace").strip()
+                if not line:
+                    continue
 
-                # Always append to the rolling global buffer
-                self._output_buffer.append(decoded)
+                # Always log to rolling buffer for debugging / KAIROS observations
+                self._output_buffer.append(line)
                 if len(self._output_buffer) > 200:
                     self._output_buffer = self._output_buffer[-200:]
                 self._last_output = "\n".join(self._output_buffer[-50:])
+
+                # Parse NDJSON message
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    # Non-JSON line (e.g. startup banner) — log and continue
+                    continue
+
+                msg_type = msg.get("type", "")
+
+                # Collect assistant text into the current turn's response
+                if msg_type == "assistant":
+                    if self._turn_in_flight:
+                        # Extract text content from the assistant message
+                        message = msg.get("message", {})
+                        content = message.get("content", [])
+                        if isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    self._turn_response_lines.append(block.get("text", ""))
+                        elif isinstance(content, str):
+                            self._turn_response_lines.append(content)
+
+                # Turn complete signals
+                elif msg_type == "system":
+                    subtype = msg.get("subtype", "")
+                    if subtype == "turn_complete" and self._turn_in_flight:
+                        self._turn_event.set()
+
+                elif msg_type == "result":
+                    # print-mode final result — also signals end of turn
+                    if self._turn_in_flight:
+                        # result may carry the full response text
+                        result_text = msg.get("result", "")
+                        if result_text and result_text not in self._turn_response_lines:
+                            self._turn_response_lines.append(result_text)
+                        self._turn_event.set()
 
         except Exception:
             pass
         if self._status == "running":
             self._status = "stopped"
+        # Signal any waiting send() calls that we're done
+        self._turn_event.set()
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
 
     async def send(self, prompt: str) -> dict[str, Any]:
-        """Send a prompt to stdin and wait for the EOT sentinel response."""
+        """Send a prompt via NDJSON protocol and wait for turn_complete."""
         if not self._process or self._status != "running":
             return {
                 "error": f"Session {self.session_id} not running (status: {self._status})",
-                "hint": self._last_output if "ERROR" in self._last_output else None,
+                "hint": self._last_output[-300:] if "ERROR" in self._last_output else None,
             }
 
         if self.on_activity:
             self.on_activity()
 
-        sentinel = self._sentinel
-        event = asyncio.Event()
-        self._eot_events[sentinel] = event
-        self._eot_buffers[sentinel] = []
+        # Prepare turn state
+        self._turn_event.clear()
+        self._turn_response_lines = []
+        self._turn_in_flight = True
+
+        # Build NDJSON user message (Claude Code SDK wire protocol)
+        user_msg = {
+            "type": "user",
+            "session_id": "",
+            "message": {"role": "user", "content": prompt},
+            "parent_tool_use_id": None,
+        }
+        payload = json.dumps(user_msg, ensure_ascii=False) + "\n"
 
         try:
-            # Send prompt + sentinel on a separate line.
-            # openclaude will echo the sentinel back when it finishes responding.
-            payload = f"{prompt}\n{sentinel}\n"
-            self._process.stdin.write(payload.encode())
+            logger.info(f"[{self.session_id}] Send prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+            self._process.stdin.write(payload.encode("utf-8"))
             await self._process.stdin.drain()
 
-            # Wait for the sentinel to appear in stdout (with timeout)
+            # Wait for turn_complete or timeout
             try:
-                await asyncio.wait_for(event.wait(), timeout=SEND_TIMEOUT_SECONDS)
-                response_lines = self._eot_buffers.get(sentinel, [])
-                response_text = "\n".join(response_lines) if response_lines else "(empty response)"
+                await asyncio.wait_for(self._turn_event.wait(), timeout=SEND_TIMEOUT_SECONDS)
+                response_text = "\n".join(self._turn_response_lines).strip()
+                if not response_text:
+                    response_text = "(empty response — model may still be starting up)"
             except TimeoutError:
-                response_lines = self._eot_buffers.get(sentinel, [])
-                response_text = (
-                    "\n".join(response_lines)
-                    if response_lines
-                    else f"(timeout after {SEND_TIMEOUT_SECONDS}s — model still running)"
-                )
+                response_text = "\n".join(self._turn_response_lines).strip()
+                if not response_text:
+                    response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s — model may still be processing)"
 
+            logger.info(f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} response blocks)")
             self._last_output = "\n".join(self._output_buffer[-50:])
             return {
                 "session_id": self.session_id,
                 "output": response_text,
                 "model": self.model,
             }
+
         except BrokenPipeError:
             self._status = "stopped"
-            return {"error": "Process pipe broken — session likely exited"}
+            return {"error": "Process terminated during send."}
         except Exception as e:
             return {"error": str(e)}
         finally:
-            # Always clean up sentinel tracking
-            self._eot_events.pop(sentinel, None)
-            self._eot_buffers.pop(sentinel, None)
+            self._turn_in_flight = False
 
     async def stop(self) -> None:
         if self._process and self._process.returncode is None:
-            # Signal any waiting send() calls that we're done
-            for event in self._eot_events.values():
-                event.set()
-            try:
-                self._process.stdin.write(b"/exit\n")
-                await self._process.stdin.drain()
+            # Unblock any waiting send()
+            self._turn_event.set()
+            with contextlib.suppress(Exception):
+                self._process.stdin.write_eof()
+            with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._process.wait(), timeout=5)
-            except Exception:
-                pass
             if self._process.returncode is None:
                 self._process.terminate()
                 try:
                     await asyncio.wait_for(self._process.wait(), timeout=5)
                 except TimeoutError:
                     self._process.kill()
+        if self.mcp_config_path:
+            with contextlib.suppress(Exception):
+                os.remove(self.mcp_config_path)
         self._status = "stopped"
 
     def snapshot(self) -> dict[str, Any]:

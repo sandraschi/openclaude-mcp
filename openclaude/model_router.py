@@ -10,28 +10,63 @@ OLLAMA_BASE = "http://localhost:11434"
 
 
 class ModelRouter:
+    # Tags must match actual Ollama model names exactly.
+    # Run `ollama list` to verify what's installed.
     KNOWN_MODELS: dict[str, dict] = {
-        "gemma4:26b-a4b": {
-            "label": "Gemma 4 26B MoE (recommended)",
-            "active_params_b": 3.8,
+        "gemma4:26b": {
+            "label": "Gemma 4 26B (recommended)",
+            "active_params_b": 26,
             "total_params_b": 26,
-            "vram_q4_gb": 9.5,
+            "vram_q4_gb": 17,
+            "est_toks": "40-60",
+            "context_k": 256,
+            "tool_calling": True,
+            "license": "Apache-2.0",
+            "notes": "Best available on this machine. Q4_K_M, 256K context.",
+        },
+        "gemma4:e4b": {
+            "label": "Gemma 4 E4B (fast MoE)",
+            "active_params_b": 4,
+            "total_params_b": 8,
+            "vram_q4_gb": 9,
             "est_toks": "80-100",
             "context_k": 256,
             "tool_calling": True,
             "license": "Apache-2.0",
-            "notes": "Sweet spot on 4090. 97% of 31B quality at 4B active params speed.",
+            "notes": "Fast MoE variant. Good for KAIROS loops.",
         },
-        "gemma4:31b": {
-            "label": "Gemma 4 31B Dense (max quality)",
-            "active_params_b": 31,
-            "total_params_b": 31,
-            "vram_q4_gb": 20,
-            "est_toks": "45-60",
-            "context_k": 256,
+        "qwen2.5-coder:32b-instruct-q4_K_M": {
+            "label": "Qwen2.5-Coder 32B (coding specialist)",
+            "active_params_b": 32,
+            "total_params_b": 32,
+            "vram_q4_gb": 19,
+            "est_toks": "30-40",
+            "context_k": 128,
             "tool_calling": True,
             "license": "Apache-2.0",
-            "notes": "#3 open model on Arena. Fits Q4 on 4090 with full 256K ctx.",
+            "notes": "Best coding model available locally. SWE-bench strong.",
+        },
+        "deepseek-r1:32b": {
+            "label": "DeepSeek R1 32B (reasoning)",
+            "active_params_b": 32,
+            "total_params_b": 32,
+            "vram_q4_gb": 19,
+            "est_toks": "25-35",
+            "context_k": 64,
+            "tool_calling": False,
+            "license": "MIT",
+            "notes": "Strong reasoning. No native tool calling.",
+        },
+        "llama3.1:8b": {
+            "label": "Llama 3.1 8B (lightweight)",
+            "active_params_b": 8,
+            "total_params_b": 8,
+            "vram_q4_gb": 5,
+            "est_toks": "80-100",
+            "context_k": 128,
+            "tool_calling": True,
+            "license": "Meta Llama 3",
+            "notes": "Fast and light. Good for quick tasks.",
         },
         "qwen3.5:35b-a3b": {
             "label": "Qwen3.5 35B-A3B MoE (fastest)",
@@ -55,32 +90,10 @@ class ModelRouter:
             "license": "Apache-2.0",
             "notes": "SWE-bench 72.4%. Best reasoning among 27B class.",
         },
-        "qwen3-coder-next": {
-            "label": "Qwen3-Coder-Next (agentic coding specialist)",
-            "active_params_b": None,
-            "total_params_b": None,
-            "vram_q4_gb": None,
-            "est_toks": "TBD",
-            "context_k": None,
-            "tool_calling": True,
-            "license": "Apache-2.0",
-            "notes": "Purpose-built for agentic coding workflows. Monitor for Ollama tag.",
-        },
-        "glm5": {
-            "label": "GLM-5 (MIT, #1 open SWE-bench)",
-            "active_params_b": None,
-            "total_params_b": None,
-            "vram_q4_gb": None,
-            "est_toks": "TBD",
-            "context_k": None,
-            "tool_calling": True,
-            "license": "MIT",
-            "notes": "Zhipu GLM-5. Watch for Ollama tag.",
-        },
     }
 
     def __init__(self) -> None:
-        self.default = "gemma4:26b-a4b"
+        self.default = "gemma4:26b"
 
     async def list_models(self) -> dict[str, Any]:
         available: list[str] = []

@@ -1,6 +1,5 @@
 """tests/unit/test_model_router.py — unit tests for ModelRouter."""
 
-
 import pytest
 
 from openclaude.model_router import ModelRouter
