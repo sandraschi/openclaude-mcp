@@ -1,18 +1,46 @@
 set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
 
+UV     := "C:/Users/sandr/.local/bin/uv.exe"
+NAME   := "openclaude-mcp"
+VER    := "0.1.0"
+PORT   := "10932"
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-# Display the SOTA Industrial Dashboard
+# Show live status + recipe list
 default:
-    @$lines = Get-Content '{{justfile()}}'; \
-    Write-Host ' [SOTA] Industrial Operations Dashboard v1.3.2' -ForegroundColor White -BackgroundColor Cyan; \
-    Write-Host '' ; \
+    @$port = {{PORT}}; \
+    $health = $null; \
+    try { \
+        $health = Invoke-RestMethod "http://localhost:$port/api/health" -TimeoutSec 2 -ErrorAction Stop; \
+    } catch {}; \
+    $serverState  = if ($health) { 'RUNNING' }  else { 'STOPPED' }; \
+    $serverColor  = if ($health) { 'Green' }   else { 'Yellow' }; \
+    $ollamaState  = if ($health -and $health.ollama) { 'ONLINE' } else { 'OFFLINE' }; \
+    $ollamaColor  = if ($health -and $health.ollama) { 'Green' }  else { 'Yellow' }; \
+    $model        = if ($health -and $health.default_model) { $health.default_model } else { '—' }; \
+    $sessions     = if ($health) { $health.active_sessions } else { '—' }; \
+    $prefab       = if ($health -and $health.prefab_ui) { 'YES' } else { 'no' }; \
+    $prefabColor  = if ($health -and $health.prefab_ui) { 'Cyan' } else { 'Gray' }; \
+    Write-Host ''; \
+    Write-Host ' [OCP] OpenClaude Control Plane  v{{VER}} ' -ForegroundColor White -BackgroundColor Magenta -NoNewline; \
+    Write-Host "  :$port" -ForegroundColor Gray; \
+    Write-Host ''; \
+    Write-Host '  Server  ' -NoNewline; Write-Host $serverState  -ForegroundColor $serverColor  -NoNewline; \
+    Write-Host '   Ollama  ' -NoNewline; Write-Host $ollamaState -ForegroundColor $ollamaColor  -NoNewline; \
+    Write-Host '   Sessions  ' -NoNewline; Write-Host $sessions   -ForegroundColor White         -NoNewline; \
+    Write-Host '   Model  ' -NoNewline; Write-Host $model         -ForegroundColor Cyan          -NoNewline; \
+    Write-Host '   Prefab  ' -NoNewline; Write-Host $prefab       -ForegroundColor $prefabColor; \
+    Write-Host ''; \
+    $lines = Get-Content '{{justfile()}}'; \
     $currentCategory = ''; \
     foreach ($line in $lines) { \
         if ($line -match '^# ── ([^─]+) ─') { \
             $currentCategory = $matches[1].Trim(); \
-            Write-Host "`n  $currentCategory" -ForegroundColor Cyan; \
-            Write-Host ('  ' + ('─' * 45)) -ForegroundColor Gray; \
+            if ($currentCategory -ne 'Dashboard') { \
+                Write-Host "  $currentCategory" -ForegroundColor Magenta; \
+                Write-Host ('  ' + ('─' * 45)) -ForegroundColor Gray; \
+            } \
         } elseif ($line -match '^# ([^─].+)') { \
             $desc = $matches[1].Trim(); \
             $idx = [array]::IndexOf($lines, $line); \
@@ -20,88 +48,116 @@ default:
                 $nextLine = $lines[$idx + 1]; \
                 if ($nextLine -match '^([a-z0-9-]+):') { \
                     $recipe = $matches[1]; \
-                    $pad = ' ' * [math]::Max(2, (18 - $recipe.Length)); \
+                    $pad = ' ' * [math]::Max(2, (20 - $recipe.Length)); \
                     Write-Host "    $recipe" -ForegroundColor White -NoNewline; \
                     Write-Host "$pad$desc" -ForegroundColor Gray; \
                 } \
             } \
         } \
     } \
-    Write-Host "`n  [System State: PROD/HARDENED]" -ForegroundColor DarkGray; \
     Write-Host ''
 
 # ── Operation ─────────────────────────────────────────────────────────────────
 
-# Project Automation
-# ---------------------------------------------------------------------------
+# One-time first-time setup (npm + uv sync)
+setup:
+    pwsh -ExecutionPolicy Bypass -File setup.ps1
 
-# Run the MCP backend + REST bridge on fleet port 10932
+# Launch Control Plane (starts server + webapp via start.ps1)
+start:
+    pwsh -ExecutionPolicy Bypass -File start.ps1
+
+# Run FastMCP backend only on fleet port 10932
 serve:
-    uv run python server.py
+    {{UV}} run python server.py
 
-# Run in stdio mode for Claude Desktop / Cursor
+# stdio transport for Claude Desktop / Cursor
 stdio:
-    uv run python server.py --transport stdio
+    {{UV}} run python server.py --transport stdio
 
-# Run the React webapp
+# Run the React webapp on port 10933
 webapp:
     cd webapp && npm run dev -- --port 10933
 
-# Start both via start.ps1 (Windows — clears ports, opens browser)
-start:
-    powershell -ExecutionPolicy Bypass -File start.ps1
+# Kill the backend process on port 10932
+stop:
+    $conn = Get-NetTCPConnection -LocalPort {{PORT}} -ErrorAction SilentlyContinue; \
+    if ($conn) { Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'Stopped.' -ForegroundColor Green } \
+    else { Write-Host 'Nothing on port {{PORT}}.' -ForegroundColor Yellow }
 
-# One-time first-time setup
-setup:
-    powershell -ExecutionPolicy Bypass -File setup.ps1
+# Stop backend then relaunch it
+restart: stop
+    {{UV}} run python server.py
+
+# Tail the backend startup log live (Ctrl-C to exit)
+logs:
+    Get-Content backend_startup.log -Wait -Tail 40
 
 # ── Quality ───────────────────────────────────────────────────────────────────
 
-# Execute Ruff SOTA v13.1 linting
+# Ruff lint check
 lint:
-    uv run ruff check .
-    uv run ruff format --check .
+    {{UV}} run ruff check .
+    {{UV}} run ruff format --check .
 
-# Execute Ruff SOTA v13.1 fix and formatting
+# Ruff fix + format
 fix:
-    uv run ruff check . --fix --unsafe-fixes
-    uv run ruff format .
+    {{UV}} run ruff check . --fix --unsafe-fixes
+    {{UV}} run ruff format .
 
-# Type check (non-blocking during adoption)
+# Pyright type check (non-blocking)
 typecheck:
-    uv run pyright openclaude/ server.py || true
+    {{UV}} run pyright openclaude/ server.py || true
+
+# Lint + typecheck + unit tests — run before every commit
+check: lint typecheck test-unit
 
 # ── Security ──────────────────────────────────────────────────────────────────
 
-# Static analysis security scan (Bandit + Semgrep)
+# Bandit + Semgrep static security scan
 check-sec:
-    uv run bandit -r openclaude/ server.py -ll
-    uv run semgrep --config p/security-audit --error .
+    {{UV}} run bandit -r openclaude/ server.py -ll
+    {{UV}} run semgrep --config p/security-audit --error .
 
-# Audit dependencies for CVEs
+# Audit Python + Node deps for CVEs
 audit-deps:
-    uv run safety check
+    {{UV}} run safety check
     cd webapp && npm audit
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
 # Run all tests
 test:
-    uv run pytest tests/ -v
+    {{UV}} run pytest tests/ -v
+
+# Alias (common typo)
+tests: test
 
 # Unit tests only (fast, no I/O)
 test-unit:
-    uv run pytest tests/unit/ -v
+    {{UV}} run pytest tests/unit/ -v
 
-# Integration tests (requires Ollama running)
+# Integration tests (requires Ollama on :11434)
 test-integration:
-    uv run pytest tests/integration/ -v -m integration
+    {{UV}} run pytest tests/integration/ -v -m integration
 
-# All tests with coverage
+# Smoke tests (requires server on :10932)
+smoke:
+    {{UV}} run pytest tests/smoke/ -v -m smoke
+
+# E2E tests (requires Ollama + openclaude on PATH)
+test-e2e:
+    {{UV}} run pytest tests/e2e/ -v -m e2e
+
+# All tests with coverage report
 test-cov:
-    uv run pytest tests/ -v --tb=short --cov=openclaude --cov=server --cov-report=term-missing
+    {{UV}} run pytest tests/ -v --tb=short --cov=openclaude --cov=server --cov-report=term-missing
 
 # ── Models ────────────────────────────────────────────────────────────────────
+
+# List models currently available in Ollama
+list-models:
+    ollama list
 
 # Pull recommended Ollama models
 pull-models:
@@ -124,27 +180,33 @@ webapp-build:
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
-# Full packaging pipeline: validate → pack → inspect
+# Full pipeline: validate → pack → inspect
 pack: mcpb-validate mcpb-pack mcpb-inspect
 
-# Build MCPB bundle for Claude Desktop
+# Build MCPB bundle
 mcpb-pack:
-    mcpb pack . dist/openclaude-v0.1.0.mcpb
+    mcpb pack . dist/{{NAME}}-v{{VER}}.mcpb
 
-# Validate the manifest before packing
+# Validate manifest
 mcpb-validate:
     mcpb validate manifest.json
 
-# Inspect a built bundle
+# Inspect built bundle
 mcpb-inspect:
-    mcpb inspect dist/openclaude-v0.1.0.mcpb
+    mcpb inspect dist/{{NAME}}-v{{VER}}.mcpb
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
 # Remove build artefacts and cache
 clean:
-    powershell -Command "Remove-Item -Recurse -Force dist,__pycache__,'.pytest_cache','.ruff_cache' -ErrorAction SilentlyContinue"
+    Remove-Item -Recurse -Force dist,__pycache__,'.pytest_cache','.ruff_cache' -ErrorAction SilentlyContinue
 
-# Remove everything including venv (nuclear option)
-clean-all: clean
-    powershell -Command "Remove-Item -Recurse -Force .venv,webapp/node_modules -ErrorAction SilentlyContinue"
+# Remove everything including venv and node_modules — fresh start
+reset: clean
+    Remove-Item -Recurse -Force .venv,webapp/node_modules -ErrorAction SilentlyContinue
+
+# Free port 10932 without touching anything else
+kill-port:
+    $conn = Get-NetTCPConnection -LocalPort {{PORT}} -ErrorAction SilentlyContinue; \
+    if ($conn) { Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'Port {{PORT}} cleared.' -ForegroundColor Green } \
+    else { Write-Host 'Port {{PORT}} already free.' -ForegroundColor Yellow }

@@ -4,8 +4,7 @@ openclaude-mcp  —  FastMCP 3.2 server + Starlette REST bridge
 FastMCP 3.2 features used:
   - lifespan context manager (startup health check, graceful shutdown)
   - mcp.http_app(transport="sse")  — ASGI SSE transport mount
-  - FastMCPApp + @app.ui()         — Prefab fleet dashboard (requires fastmcp[apps])
-  - mcp.add_provider(fleet_app)    — Provider composition pattern
+  - @mcp.tool(app=True)            — Prefab fleet dashboard (requires fastmcp[apps])
   - Context | None                 — tools callable from both MCP and REST
 
 Two transports on port 10932:
@@ -14,11 +13,10 @@ Two transports on port 10932:
   /api/health     → health check
   /api/capabilities → capabilities
 
-Prefab UI (FastMCPApp):
-  fleet_dashboard  — @app.ui() entry point → calls app.tool() backend tools
+Prefab UI:
+  fleet_dashboard  — @mcp.tool(app=True) returns PrefabApp when prefab-ui installed
   Requires: uv sync --extra apps  (installs prefab-ui)
-  Without prefab-ui installed the fleet_app is registered but ui() calls
-  return a plain JSON fallback so the server still starts cleanly.
+  Without prefab-ui installed the tool returns a plain JSON dict fallback.
 """
 
 from __future__ import annotations
@@ -37,7 +35,6 @@ import logging
 import time
 import uvicorn
 from fastmcp import Context, FastMCP
-from fastmcp.apps import FastMCPApp
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -113,76 +110,16 @@ OLLAMA_BASE = "http://localhost:11434"
 BACKEND_PORT = int(os.environ.get("OPENCLAUDE_MCP_PORT", "10932"))
 
 # ---------------------------------------------------------------------------
-# FastMCPApp — Prefab fleet dashboard
-# Gracefully degrades if prefab-ui not installed
+# Prefab UI — optional dependency check (import only, no mcp reference yet)
 # ---------------------------------------------------------------------------
 
-fleet_app = FastMCPApp("fleet")
-
 try:
+    from prefab_ui.app import PrefabApp  # type: ignore[import]
     from prefab_ui.components import Badge, Column, Row, Table, Text  # type: ignore[import]
 
     _PREFAB_AVAILABLE = True
 except ImportError:
     _PREFAB_AVAILABLE = False
-
-
-@fleet_app.ui(description="Show live OpenClaude fleet status as a Prefab dashboard")
-async def fleet_dashboard(ctx: Context) -> dict[str, Any]:
-    """Entry-point UI tool — the model calls this to open the fleet dashboard."""
-    all_sessions = sessions.all()
-    model_data = await model_router.list_models()
-    default_model = model_data.get("default", "gemma4:26b-a4b")
-    ollama_ok = model_data.get("ollama_running", False)
-    running = [s for s in all_sessions if s.snapshot()["status"] == "running"]
-    kairos_active = [s for s in running if s.kairos_enabled]
-
-    if not _PREFAB_AVAILABLE:
-        # Plain dict fallback — still useful without prefab-ui
-        return {
-            "active_sessions": len(running),
-            "kairos_daemons": len(kairos_active),
-            "default_model": default_model,
-            "ollama": "online" if ollama_ok else "offline",
-            "sessions": [s.snapshot() for s in all_sessions],
-            "_note": "Install fastmcp[apps] for rich Prefab UI rendering",
-        }
-
-    rows = [
-        {
-            "ID": s.snapshot()["session_id"],
-            "Model": s.snapshot()["model"].split(":")[0],
-            "Dir": str(s.working_dir)[-40:],
-            "Status": s.snapshot()["status"],
-            "KAIROS": "yes" if s.kairos_enabled else "-",
-            "Uptime": f"{s.snapshot()['elapsed_seconds']}s",
-        }
-        for s in all_sessions
-    ]
-
-    return Column(
-        Row(
-            Badge(f"Sessions: {len(running)}", color="green" if running else "gray"),
-            Badge(f"KAIROS: {len(kairos_active)}", color="amber" if kairos_active else "gray"),
-            Badge(f"Ollama: {'online' if ollama_ok else 'offline'}", color="green" if ollama_ok else "red"),
-            Badge(f"Default: {default_model.split(':')[0]}", color="blue"),
-        ),
-        Table(data=rows) if rows else Text("No sessions running.", variant="muted"),
-    )
-
-
-@fleet_app.tool(model=True, description="Get raw fleet status data")
-async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
-    """Backend tool — also visible to the model (model=True)."""
-    all_sessions = sessions.all()
-    model_data = await model_router.list_models()
-    return {
-        "active_sessions": len([s for s in all_sessions if s.snapshot()["status"] == "running"]),
-        "total_sessions": len(all_sessions),
-        "kairos_active": len([s for s in all_sessions if s.kairos_enabled]),
-        "default_model": model_data.get("default"),
-        "ollama_running": model_data.get("ollama_running", False),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +156,71 @@ mcp = FastMCP(
     lifespan=lifespan,
 )
 
-# Register the fleet_app as a provider
-mcp.add_provider(fleet_app)
+# ---------------------------------------------------------------------------
+# Prefab fleet dashboard — registered after mcp is instantiated
+# ---------------------------------------------------------------------------
+
+
+_fleet_tool_kwargs: dict[str, Any] = {"description": "Show live OpenClaude fleet status as a Prefab dashboard"}
+if _PREFAB_AVAILABLE:
+    _fleet_tool_kwargs["app"] = True
+
+
+@mcp.tool(**_fleet_tool_kwargs)
+async def fleet_dashboard(ctx: Context | None = None) -> Any:
+    """Fleet status — returns Prefab UI when available, plain dict otherwise."""
+    all_sessions = sessions.all()
+    model_data = await model_router.list_models()
+    default_model = model_data.get("default", "gemma4:26b-a4b")
+    ollama_ok = model_data.get("ollama_running", False)
+    running = [s for s in all_sessions if s.snapshot()["status"] == "running"]
+    kairos_active = [s for s in running if s.kairos_enabled]
+
+    if not _PREFAB_AVAILABLE:
+        return {
+            "active_sessions": len(running),
+            "kairos_daemons": len(kairos_active),
+            "default_model": default_model,
+            "ollama": "online" if ollama_ok else "offline",
+            "sessions": [s.snapshot() for s in all_sessions],
+            "_note": "Install fastmcp[apps] for rich Prefab UI rendering",
+        }
+
+    rows = [
+        {
+            "ID": s.snapshot()["session_id"],
+            "Model": s.snapshot()["model"].split(":")[0],
+            "Dir": str(s.working_dir)[-40:],
+            "Status": s.snapshot()["status"],
+            "KAIROS": "yes" if s.kairos_enabled else "-",
+            "Uptime": f"{s.snapshot()['elapsed_seconds']}s",
+        }
+        for s in all_sessions
+    ]
+
+    return Column(
+        Row(
+            Badge(f"Sessions: {len(running)}", color="green" if running else "gray"),
+            Badge(f"KAIROS: {len(kairos_active)}", color="amber" if kairos_active else "gray"),
+            Badge(f"Ollama: {'online' if ollama_ok else 'offline'}", color="green" if ollama_ok else "red"),
+            Badge(f"Default: {default_model.split(':')[0]}", color="blue"),
+        ),
+        Table(data=rows) if rows else Text("No sessions running.", variant="muted"),
+    )
+
+
+@mcp.tool(description="Get raw fleet status data")
+async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
+    """Backend tool — raw fleet data."""
+    all_sessions = sessions.all()
+    model_data = await model_router.list_models()
+    return {
+        "active_sessions": len([s for s in all_sessions if s.snapshot()["status"] == "running"]),
+        "total_sessions": len(all_sessions),
+        "kairos_active": len([s for s in all_sessions if s.kairos_enabled]),
+        "default_model": model_data.get("default"),
+        "ollama_running": model_data.get("ollama_running", False),
+    }
 
 # ---------------------------------------------------------------------------
 # Safety & Policy Helpers

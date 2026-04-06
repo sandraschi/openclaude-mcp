@@ -75,3 +75,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = "--tb=short -q"
+markers = [
+    "unit: fast unit tests, no external deps",
+    "integration: requires Ollama running on :11434",
+    "smoke: requires server running on :10932",
+    "e2e: requires Ollama + openclaude on PATH",
+    "requires_ollama: requires Ollama running with a model pulled",
+]
