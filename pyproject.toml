@@ -14,7 +14,8 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "anyio>=4.4.0",
     "psutil>=6.0.0",
-    "filelock>=3.13.0",   # MEMORY.md race condition fix (TODO.md fix 2a)
+    "filelock>=3.13.0", # MEMORY.md race condition fix (TODO.md fix 2a)
+    "prefab-ui>=0.14.0",
 ]
 
 [project.optional-dependencies]
