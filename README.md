@@ -8,6 +8,9 @@
   <a href="https://github.com/PrefectHQ/fastmcp"><img src="https://img.shields.io/badge/FastMCP-3.2-7c5cfc?style=flat-square" alt="FastMCP"></a>
 </p>
 
+
+> 📖 **[Installation Guide](INSTALL.md)** — quick start, manual setup, and troubleshooting
+
 A high-performance control plane for Ollama-based local LLM sessions, with background memory consolidation (KAIROS), hybrid cloud planning (ULTRAPLAN), and real-time fleet monitoring. Optimized for RTX 4090 environments.
 
 ### Features
