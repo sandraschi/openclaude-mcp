@@ -51,18 +51,12 @@ class TestServerImports:
     def test_model_router_default_set(self):
         from server import model_router
 
-        assert model_router.default == "gemma4:26b-a4b"
+        assert model_router.default == "gemma4:26b"
 
     def test_session_store_empty_on_import(self):
         from server import sessions
 
         assert sessions.all() == []
-
-    def test_fastmcpapp_registered(self):
-        """fleet_app must be added as provider to mcp."""
-        from server import fleet_app
-
-        assert fleet_app is not None
 
     def test_build_app_returns_starlette(self):
         from starlette.applications import Starlette

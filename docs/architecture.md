@@ -21,19 +21,35 @@ graph TD
 ```
 
 ### The Two Halves:
-1.  **The Engine (TypeScript)**: A specialized fork of Claude Code optimized for local inference. It handles tool use, reasoning, and context window management.
-2.  **The Manager (Python)**: Acts as the session orchestrator. It manages process lifecycles, provides an SSE/REST bridge for the web UI, and runs the **KAIROS** background daemon.
+1. **The Engine (TypeScript)**: A specialized fork of Claude Code optimized for local inference. It handles tool use, reasoning, and context window management.
+2. **The Manager (Python)**: Acts as the session orchestrator. It manages process lifecycles, provides an SSE/REST bridge + SSE push for the web UI, runs the **KAIROS** background daemon, and persists session state to disk.
 
 ---
 
-## 2. Synchronization: The NDJSON Stream (v2)
+## 2. Transport Layer
 
-OpenClaude CLI implements a two-way JSON stream for reliable SDK-style interaction. This prevents the "partial capture" and "EOT collision" bugs common in raw terminal scraping.
+### Dual Transport (port 10932)
+- **SSE Transport** (`/sse`): For MCP clients (Claude Desktop, Cursor)
+- **REST Bridge** (`/tools/{name}`): JSON POST for webapp/curl
+- **SSE Push** (`/api/events`): Real-time event stream for the webapp — no polling
+- **Health** (`/api/health`): Ollama connectivity + active sessions
+- **Capabilities** (`/api/capabilities`): Feature discovery
 
-1.  **Request**: Python writes a `SDKUserMessage` as a single NDJSON line to CLI `stdin`.
-2.  **Streaming**: CLI writes `SDKAssistantMessage` chunks to `stdout`.
-3.  **Completion**: CLI writes a `system/turn_complete` message to signal the end of the agent's turn.
-4.  **Capture**: Python blocks the `send()` call until the completion message is parsed, ensuring a synchronous developer experience.
+The `TOOL_REGISTRY` dict maps tool names to the same async functions used by FastMCP. All 14 tools are callable from both transports.
+
+### Auth
+Optional `Authorization: Bearer <token>` middleware via `OPENCLAUDE_MCP_TOKEN`. SSE transport exempted for MCP clients.
+
+---
+
+## 3. Synchronization: The NDJSON Stream (v3)
+
+OpenClaude CLI implements a two-way JSON stream for reliable SDK-style interaction.
+
+1. **Request**: Python writes a `SDKUserMessage` as a single NDJSON line to CLI `stdin`.
+2. **Streaming**: CLI writes `SDKAssistantMessage` chunks to `stdout`.
+3. **Completion**: CLI writes a `system/turn_complete` message to signal end of turn.
+4. **Capture**: Python blocks the `send()` call until the completion message is parsed via `asyncio.Event`.
 
 ```mermaid
 sequenceDiagram
@@ -54,59 +70,135 @@ sequenceDiagram
     P-->>W: Return consolidated assistant text
 ```
 
----
-
-## 3. KAIROS (autoDream)
-
-- [06 SECURITY ADVISORY (Axios)](06_SECURITY_ADVISORY_AXIOS.md)
-- [07 MJS STANDARD](07_MJS_STANDARD.md)
-- [ARCHITECTURE](architecture.md)
-
-**KAIROS** is a proactive memory daemon that runs as an `asyncio` loop in the Python host.
-
-- **Proactive Consolidation**: It monitors session idle time.
-- **Context Synthesis**: When a session is idle, KAIROS triggers a "Dream" phase where it summarizes recent interactions and updates the project's `MEMORY.md`.
-- **Zero-Friction**: This happens in the background, ensuring the agent always has an up-to-date long-term memory of the project without manual intervention.
+Protocol history:
+- **v1 (EOT sentinel)**: BROKEN — openclaude `JSON.parse()` crashes on raw sentinel
+- **v2 (NDJSON without stream-json)**: BROKEN — prompt read from argv, not stdin
+- **v3 (NDJSON + all flags)**: Correct — `--print --input-format=stream-json --output-format=stream-json --verbose`
 
 ---
 
-## 4. MCP Mesh Architecture
+## 4. KAIROS (autoDream)
 
-OpenClaude is not just an MCP server; it is also an **MCP Client**.
+KAIROS (Ancient Greek: "the right moment") is a proactive memory daemon from the Claude Code leak. It runs as an `asyncio` loop in the Python host.
 
-When you run a command like "Analyze the docker environment," the OpenClaude engine can dynamically discover and call tools from *other* MCP servers registered in the environment (e.g., `docker-mcp`, `github-mcp`), creating a recursive mesh of capabilities.
+### The four-phase cycle (triggers when session is idle)
 
-```mermaid
-graph LR
-    User([User]) <--> OC[OpenClaude MCP Server]
-    subgraph "Internal Processing"
-        OC <--> Engine[OpenClaude TS Engine]
-        Engine <--> LLM[Local Ollama]
-    end
-    Engine <--> Docker[Docker MCP Server]
-    Engine <--> Git[GitHub MCP Server]
-    Engine <--> Browser[Browser MCP Server]
+1. **Orient** — reads `MEMORY.md` from the working directory (under `FileLock`)
+2. **Gather** — collects recent session output as observations
+3. **Consolidate** — calls local Ollama model to merge, deduplicate, harden facts
+4. **Prune** — rewrites `MEMORY.md` (under `FileLock`)
+
+### Key features
+- **FileLock**: MEMORY.md reads/writes are serialised via a sidecar `.lock` file
+- **Abort-on-activity**: If the user sends a prompt during a long consolidation call, the write is aborted — no stale overwrites
+- **Configurable poll interval**: `KAIROS_POLL_SECONDS` env var (default 30)
+- **Consolidation budget**: `KAIROS_MAX_CONSOLIDATIONS` env var (default 100) — loop exits when reached
+- **Logging**: All events go to the centralized log buffer, accessible via `/api/logs/system` and the webapp Logger page
+- **State Persistence**: Consolidation count and thresholds saved to `~/.config/openclaude/kairos_state.json` on every enable/disable/consolidation. Restored on startup via `KairosController.load_persisted_state()`. Survives server restarts.
+
+---
+
+## 5. Session Management
+
+### Lifecycle
+1. `start_session` → provisioning (npm install, build) → subprocess launch → running
+2. `send_prompt` → NDJSON write → `asyncio.Event` wait (180s timeout) → response
+3. `stop_session` → EOF on stdin → SIGTERM (5s) → SIGKILL (5s) → cleanup
+
+### Persistence
+Session metadata is saved to `~/.config/openclaude/sessions.json` on shutdown. On startup, stale PIDs are detected and cleaned up. Survives server restarts.
+
+### Usage Analytics
+Each session tracks `total_prompts`, `total_output_chars`, and `estimated_input_tokens` (chars/4 approximation). These are returned in `send()` as `turn_duration_seconds` and visible in `snapshot().usage`. Persisted alongside session metadata for historical tracking.
+
+### Multimodal Input
+The `send_multimodal` tool accepts `text` + a list of `image_paths`. Supported formats: png, jpeg, webp, gif. Images are read from disk, base64-encoded, and embedded as native Claude Code SDK content blocks:
+
+```json
+{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "<base64>"}}
 ```
 
+Works with any vision-capable Ollama model (llava, qwen-vl, bakllava, etc.). The tool is registered in both FastMCP and REST bridge. Total tools: 15.
+
+### Environment Security
+Whitelist-based env var filtering: only `PATH`, `HOME`, `USERPROFILE`, etc. + `OPENCLAUDE_*`, `ANTHROPIC_*`, `OLLAMA_*` prefixes. Uses `asyncio.create_subprocess_exec` (no shell injection).
+
 ---
 
-## 5. Safety Guardrails
+## 6. Safety Guardrails
 
-Safety is baked into the system at the prompt level:
-- **Confirmation Hooks**: Risky tools (like `rm` or `git push --force`) require explicit confirmation.
-- **Cyber-Risk Filters**: The system is instructed to avoid URL guessing and insecure credential handling.
-- **Read-Only Discovery**: Where possible, the agent is pushed towards read-only tools for initial analysis.
+Safety is baked in at the prompt level:
 
-For more details on the prompt logic, see [PROMPT_SYSTEM.md](PROMPT_SYSTEM.md).
-## 6. Observability: Unified High-Fidelity Logging
+- **Content Filters**: Kid-safe mode injects a 10-rule policy (sex ed, violence, self-harm, medical)
+- **Proactive Privacy**: Every 5-10 turns, a friendly reminder about online safety
+- **Caregiver Alerts**: `caregiver_alert` tool logs to `%TEMP%/openclaude_caregiver_alerts.log` and optionally POSTs to `CAREGIVER_WEBHOOK_URL`
+- **Cyber-Risk Filters**: The system avoids URL guessing and insecure credential handling
 
-The system features a centralized **Global Log Buffer** and a dedicated **Logger Page** in the webapp for real-time diagnostics.
+---
 
-1.  **Unified Logger**: Implemented in `openclaude/logging_util.py`, this engine consolidates all application-level logic from the **Session Manager** and **KAIROS** daemon into a single stream.
-2.  **High-Fidelity Tracing**: Unlike standard web server logs, OpenClaude captures and presents actual state machine transitions, including:
-    -   Session provisioning and process lifecycles.
-    -   NDJSON prompt delivery and turn completion events.
-    -   KAIROS "Dream" cycles and memory consolidation successes/failures.
-3.  **Noise Filtering**: The logger automatically suppresses redundant health checks and Ollama polling, ensuring the "Logs" tab remains focused on actionable developer information.
-4.  **Health Verification**: `start.ps1` performs an automated health check against `127.0.0.1:10932/api/health` before allowing the web UI to bind, preventing "proxy error 504" loops.
-5.  **Real-time Feed**: The `/api/logs/system` endpoint serves a rolling window of the latest 200 logs to the webapp for instant debugging.
+## 7. Observability
+
+### Centralized Logging
+- `WebLogHandler` (200-line rolling buffer) attached to `openclaude`, `uvicorn`, `uvicorn.error`, `uvicorn.access`
+- Noise filtering: suppresses `/api/health` and `/api/tags` polling
+- REST endpoint: `GET /api/logs/system`
+- SSE push: `GET /api/events` streams `sessions` and `logs` events
+
+### Webapp Pages (9 total)
+| Page | Description |
+|:---|:---|
+| **Dashboard** | Stat cards, Ollama status, default model, quick actions |
+| **Sessions** | New session form, session list with split-view chat + xterm.js |
+| **Models** | Model cards with VRAM/speed/context/license metadata |
+| **KAIROS** | Per-session toggle + real-time consolidation log viewer |
+| **Examples** | Interactive API playground with live "Run" buttons |
+| **Logs** | Real-time unified system log stream with auto-scroll |
+| **Help** | Searchable API reference — tool params, return schemas, env vars, error codes |
+| **Settings** | Launch paths, endpoint URLs, Claude Desktop config snippet |
+
+---
+
+## 8. SSE Push (Real-time Updates)
+
+The webapp no longer polls every 8s. Instead:
+
+1. Backend: `GET /api/events` is a long-lived SSE endpoint
+2. `_notify_sessions()` is called on every `start_session` / `stop_session` — broadcasts session state to all subscribers via `asyncio.Queue`
+3. `_notify_logs()` pushes log updates
+4. Webapp `EventSource` subscribes on mount, dispatches to `setSessions()` / `setSystemLogs()` store actions
+
+---
+
+## 9. Deployment
+
+### Native
+```powershell
+.\start.ps1
+```
+Health-gating: waits up to 30s for `/api/health` to respond. Port clearing: kills stale processes on 10932.
+
+### Docker
+```yaml
+docker compose up
+```
+Three services: `ollama` (GPU-enabled), `mcp` (Python backend), `webapp` (nginx static). Nginx proxies `/tools/` and `/api/` to backend.
+
+### CI/CD
+`.github/workflows/ci.yml` — ruff + pytest on push/PR. E2e tests use `respx` to mock Anthropic API.
+
+---
+
+## 10. Configuration Reference
+
+| Env Var | Default | Description |
+|:---|:---|:---|
+| `OPENCLAUDE_MCP_PORT` | `10932` | Backend port |
+| `OPENCLAUDE_MCP_TOKEN` | — | REST auth middleware (disabled if unset) |
+| `OPENCLAUDE_DIR` | `D:\Dev\repos\external\openclaude` | Path to openclaude source |
+| `OPENCLAUDE_DEFAULT_WORKING_DIR` | `D:\Dev\repos\claude-code-1` | Default session working dir |
+| `OPENCLAUDE_ULTRAPLAN_MODEL` | `claude-sonnet-4-6` | Anthropic model for ULTRAPLAN |
+| `OPENCLAUDE_CONFIG_DIR` | `~/.config/openclaude` | Persistence directory |
+| `KAIROS_POLL_SECONDS` | `30` | KAIROS daemon poll interval |
+| `KAIROS_MAX_CONSOLIDATIONS` | `100` | Max consolidations per session |
+| `CAREGIVER_WEBHOOK_URL` | — | Webhook for caregiver alerts |
+| `ANTHROPIC_API_KEY` | — | Required for ULTRAPLAN |

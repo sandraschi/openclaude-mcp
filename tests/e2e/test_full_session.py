@@ -72,7 +72,7 @@ class TestSessionLifecycle:
             "/tools/start_session",
             json={
                 "working_dir": str(workdir),
-                "model_tag": "gemma4:26b-a4b",
+                "model_tag": "gemma4:26b",
             },
         )
         assert r.status_code == 200

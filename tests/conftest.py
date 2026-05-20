@@ -46,13 +46,13 @@ def mock_ollama_ok():
     tags_response.status_code = 200
     tags_response.json.return_value = {
         "models": [
-            {"name": "gemma4:26b-a4b"},
+            {"name": "gemma4:26b"},
             {"name": "qwen3.5:35b-a3b"},
         ]
     }
     ps_response = MagicMock()
     ps_response.status_code = 200
-    ps_response.json.return_value = {"models": [{"name": "gemma4:26b-a4b"}]}
+    ps_response.json.return_value = {"models": [{"name": "gemma4:26b"}]}
 
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
@@ -71,3 +71,9 @@ def mock_ollama_down():
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         mock_client.get.side_effect = httpx.ConnectError("connection refused")
         yield mock_client
+
+
+@pytest.fixture(autouse=True)
+def _isolate_defaults_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Isolate model defaults file to a temp dir so tests don't write to ~/.config."""
+    monkeypatch.setenv("OPENCLAUDE_CONFIG_DIR", str(tmp_path / ".config" / "openclaude"))

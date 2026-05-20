@@ -1,5 +1,91 @@
 # Changelog
 
+## [0.2.2] - 2026-05-02
+
+### Interactive Examples page + API Reference Page overhaul
+
+#### Examples Page (new)
+- **Interactive playground**: Every example has a live "Run" button that calls the real backend — response JSON, timing, loading states.
+- **Status bar**: Live Ollama/server health with refresh button at the top of the page.
+- **Quick Reference**: List Models and Server Health one-click examples.
+- **Full Session Walkthrough**: 3-step sequential flow (start → list → stop) with result chaining — run step 1, pass the session_id to step 2.
+- **API Browser**: 4 one-click cards for capabilities, sessions, model status, system logs.
+
+#### Help Page (overhauled)
+- **Search bar**: Real-time section filtering across all doc categories.
+- **Tool Reference**: All 15 tools documented with parameter tables (name, type, default, description), return value schemas, and curl examples.
+- **Environment Variables**: 10-variable reference table with defaults and descriptions.
+- **Error Codes**: 9-code troubleshooting table (400/401/404/500/NO_SESSION/ANTHROPIC_*) with meanings and fixes.
+- **Model Guide**: Fixed model tags (gemma4:26b, not gemma4:26b-a4b), 7 models with VRAM/speed/context/license.
+- **KAIROS/ULTRAPLAN/Safety**: Trimmed lore, focused on technical reference.
+
+#### Navigation
+- **New sidebar entry**: "Examples" added between KAIROS and Help.
+- **Webapp pages**: 9 total pages (Dashboard, Sessions, Models, KAIROS, Examples, Logs, Help, Settings).
+
+## [0.2.1] - 2026-05-02
+
+### Usage analytics, KAIROS state persistence, multimodal input
+
+#### Usage Analytics
+- **Per-session tracking**: `total_prompts`, `total_output_chars`, `estimated_input_tokens` tracked in `OpenClaudeSession`.
+- **snapshot()**: Returns `usage` object with all counters. Persisted to disk on shutdown.
+- **Turn timing**: `send()` returns `turn_duration_seconds` for performance monitoring.
+
+#### KAIROS State Persistence
+- **kairos_state.json**: Consolidation count and thresholds saved per session via `save_kairos_state()` / `load_kairos_state()`.
+- **Deferred async init**: `KairosController.load_persisted_state()` called during server lifespan startup. Auto-persists after every `enable`, `disable`, and consolidation cycle.
+- Survives server restarts — KAIROS knows which sessions it was tracking and how many consolidations remain.
+
+#### Multimodal Input
+- **`send_multimodal` tool**: New 15th MCP tool — accepts `text` + `image_paths` (file paths).
+- **Content blocks**: Images are base64-encoded and sent as native Claude Code SDK content blocks (`type: "image"`).
+- **Formats**: png, jpeg, webp, gif. Works with any vision-capable Ollama model (llava, qwen-vl, etc.).
+- Registered in both FastMCP and REST bridge. Exposed in webapp `api.ts`.
+
+#### Tools: 15 total (added `send_multimodal`)
+
+#### Examples Page
+- **New webapp page**: `Examples.tsx` — 6 sections with copy-pasteable curl/Python examples for every tool.
+- **Sections**: Quick Reference (all 15 tools), Full Session Walkthrough (7-step code review), Multimodal (image analysis), KAIROS Workflow (memory consolidation), ULTRAPLAN (cloud planning), Python SDK.
+- **UX**: Expandable sections with one-click copy buttons. Examples use real session IDs and response JSON.
+- **Navigation**: Added "Examples" to sidebar between KAIROS and Help.
+
+## [0.2.0] - 2026-05-02
+
+### Full architecture overhaul — all gaps closed
+
+#### P0 — Broken Features
+- **`kairos_log` fixed**: Now filters centralized `GLOBAL_LOG_HANDLER.lines` by session ID tag + internal fallback. KAIROS page in webapp shows real consolidation events.
+- **Model tag mismatch fixed**: Removed `gemma4:26b-a4b` fallback everywhere — `model_router.default` is the single source of truth.
+
+#### P1 — Hardening
+- **REST auth**: `AuthMiddleware` checks `Authorization: Bearer <token>` when `OPENCLAUDE_MCP_TOKEN` is set. SSE transport exempted for MCP clients.
+- **ULTRAPLAN error handling**: Added specific catches for `httpx.TimeoutException` and `httpx.ConnectError`. Configurable model via `OPENCLAUDE_ULTRAPLAN_MODEL` env var (default `claude-sonnet-4-6`). Token cost tracking (input/output tokens logged and returned).
+- **Safer Bun install**: `_install_bun()` downloads installer via `httpx.get()` and runs with `create_subprocess_exec`. No more `shell=True`/`iex` pipe.
+- **Structured logging**: All bare `except Exception: pass` replaced with `logger.warning/exc_info`.
+
+#### P2 — Feature Completion
+- **Caregiver alert delivery**: Logs to persistent file (`%TEMP%/openclaude_caregiver_alerts.log`) + optional webhook via `CAREGIVER_WEBHOOK_URL` env var.
+- **Model default persistence**: Saved to `~/.config/openclaude/default_model.json`. Loads on startup — survives restarts.
+- **KAIROS consolidation budget**: `KAIROS_MAX_CONSOLIDATIONS` env var (default 100). Loop exits when reached.
+- **Configurable KAIROS poll interval**: `KAIROS_POLL_SECONDS` env var (was hardcoded 30).
+
+#### P3 — Architecture Improvements
+- **Fleet data unified**: Single `_build_fleet_data()` helper powers both `fleet_dashboard` (Prefab UI) and `fleet_status` (raw JSON). No duplicated logic.
+- **Session persistence**: `openclaude/session_persistence.py` — JSON-based metadata store. On shutdown, saves session state. On startup, loads and reports count. Stale PID auto-cleanup.
+- **SSE push for webapp**: `GET /api/events` SSE endpoint broadcasts `sessions` and `logs` events. Webapp uses `EventSource` — no more 8s polling.
+
+#### P4 — Polish
+- **xterm duplicate cleanup**: Removed unused `xterm` v5 and `xterm-addon-fit` v0.8 packages.
+- **LogBuffer shim removed**: Uses `GLOBAL_LOG_HANDLER.lines` directly.
+- **start.ps1**: Dependency checks (uv, ollama), port clearing, uv sync, health-gate loop (30s timeout), live output capture.
+- **Configurable `OPENCLAUDE_DIR`**: `OPENCLAUDE_DIR` env var. Defaults to `D:\Dev\repos\external\openclaude`.
+- **Docker Compose**: Full stack (`docker-compose.yml` + `Dockerfile` + nginx config) — ollama/mcp/webapp.
+- **CI/CD**: `.github/workflows/ci.yml` — ruff + pytest on push/PR.
+- **ULTRAPLAN e2e tests**: 5 tests with `respx`-mocked Anthropic API — happy path, timeout, connect error, no key, missing session.
+- **Tests**: 79/79 passing (was 74/74 + 5 new e2e).
+
 ## [0.1.4] - 2026-04-06
 
 ### Hardened Startup & High-Fidelity Logging

@@ -7,55 +7,9 @@ PORT   := "10932"
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-# Show live status + recipe list
+# Open the interactive recipe dashboard in the browser
 default:
-    @$port = {{PORT}}; \
-    $health = $null; \
-    try { \
-        $health = Invoke-RestMethod "http://localhost:$port/api/health" -TimeoutSec 2 -ErrorAction Stop; \
-    } catch {}; \
-    $serverState  = if ($health) { 'RUNNING' }  else { 'STOPPED' }; \
-    $serverColor  = if ($health) { 'Green' }   else { 'Yellow' }; \
-    $ollamaState  = if ($health -and $health.ollama) { 'ONLINE' } else { 'OFFLINE' }; \
-    $ollamaColor  = if ($health -and $health.ollama) { 'Green' }  else { 'Yellow' }; \
-    $model        = if ($health -and $health.default_model) { $health.default_model } else { '—' }; \
-    $sessions     = if ($health) { $health.active_sessions } else { '—' }; \
-    $prefab       = if ($health -and $health.prefab_ui) { 'YES' } else { 'no' }; \
-    $prefabColor  = if ($health -and $health.prefab_ui) { 'Cyan' } else { 'Gray' }; \
-    Write-Host ''; \
-    Write-Host ' [OCP] OpenClaude Control Plane  v{{VER}} ' -ForegroundColor White -BackgroundColor Magenta -NoNewline; \
-    Write-Host "  :$port" -ForegroundColor Gray; \
-    Write-Host ''; \
-    Write-Host '  Server  ' -NoNewline; Write-Host $serverState  -ForegroundColor $serverColor  -NoNewline; \
-    Write-Host '   Ollama  ' -NoNewline; Write-Host $ollamaState -ForegroundColor $ollamaColor  -NoNewline; \
-    Write-Host '   Sessions  ' -NoNewline; Write-Host $sessions   -ForegroundColor White         -NoNewline; \
-    Write-Host '   Model  ' -NoNewline; Write-Host $model         -ForegroundColor Cyan          -NoNewline; \
-    Write-Host '   Prefab  ' -NoNewline; Write-Host $prefab       -ForegroundColor $prefabColor; \
-    Write-Host ''; \
-    $lines = Get-Content '{{justfile()}}'; \
-    $currentCategory = ''; \
-    foreach ($line in $lines) { \
-        if ($line -match '^# ── ([^─]+) ─') { \
-            $currentCategory = $matches[1].Trim(); \
-            if ($currentCategory -ne 'Dashboard') { \
-                Write-Host "  $currentCategory" -ForegroundColor Magenta; \
-                Write-Host ('  ' + ('─' * 45)) -ForegroundColor Gray; \
-            } \
-        } elseif ($line -match '^# ([^─].+)') { \
-            $desc = $matches[1].Trim(); \
-            $idx = [array]::IndexOf($lines, $line); \
-            if ($idx -lt $lines.Count - 1) { \
-                $nextLine = $lines[$idx + 1]; \
-                if ($nextLine -match '^([a-z0-9-]+):') { \
-                    $recipe = $matches[1]; \
-                    $pad = ' ' * [math]::Max(2, (20 - $recipe.Length)); \
-                    Write-Host "    $recipe" -ForegroundColor White -NoNewline; \
-                    Write-Host "$pad$desc" -ForegroundColor Gray; \
-                } \
-            } \
-        } \
-    } \
-    Write-Host ''
+    @pwsh.exe -NoProfile -ExecutionPolicy Bypass -File ../mcp-central-docs/scripts/just-dashboard.ps1 -Path .
 
 # ── Operation ─────────────────────────────────────────────────────────────────
 

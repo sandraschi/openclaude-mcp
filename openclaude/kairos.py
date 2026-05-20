@@ -27,6 +27,8 @@ Fix 2b — abort consolidation if session becomes active mid-cycle:
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -58,13 +60,16 @@ except ImportError:
 
 import contextlib
 
-from openclaude.session import SessionStore
 from openclaude.logging_util import get_logger
+from openclaude.session import SessionStore
+from openclaude.session_persistence import load_kairos_state, save_kairos_state
 
 logger = get_logger("kairos")
 
 OLLAMA_BASE = "http://localhost:11434"
 LOCK_TIMEOUT = 10  # seconds to wait for MEMORY.md lock before giving up
+POLL_SECONDS = int(os.environ.get("KAIROS_POLL_SECONDS", "30"))
+MAX_CONSOLIDATIONS = int(os.environ.get("KAIROS_MAX_CONSOLIDATIONS", "100"))
 
 CONSOLIDATION_SYSTEM = """You are a memory consolidation agent. You will receive:
 1. The current MEMORY.md content (existing durable facts about this project)
@@ -94,12 +99,36 @@ Output the updated MEMORY.md:"""
 
 
 class KairosController:
-    def __init__(self, sessions: SessionStore) -> None:
+    def __init__(self, sessions: SessionStore, log_handler: logging.Handler | None = None) -> None:
         self._sessions = sessions
         self._tasks: dict[str, asyncio.Task] = {}
         self._logs: dict[str, list[str]] = {}
         self._thresholds: dict[str, int] = {}
         self._last_activity: dict[str, float] = {}
+        self._log_handler = log_handler
+        self._consolidation_count: dict[str, int] = {}
+        self._state_loaded = False
+
+    async def load_persisted_state(self) -> None:
+        if self._state_loaded:
+            return
+        self._state_loaded = True
+        try:
+            saved = await load_kairos_state()
+            if saved:
+                self._consolidation_count.update(saved.get("consolidation_count", {}))
+                self._thresholds.update(saved.get("thresholds", {}))
+                active = {k: v for k, v in self._consolidation_count.items() if v < MAX_CONSOLIDATIONS}
+                if active:
+                    logger.info(f"Restored KAIROS state for {len(active)} session(s)")
+        except Exception as e:
+            logger.debug(f"KAIROS state restore skipped: {e}")
+
+    async def _persist(self) -> None:
+        try:
+            await save_kairos_state(self._consolidation_count, self._thresholds)
+        except Exception as e:
+            logger.debug(f"KAIROS state persist failed: {e}")
 
     def record_activity(self, session_id: str) -> None:
         """Reset the idle timer. Called on every send_prompt."""
@@ -118,6 +147,7 @@ class KairosController:
         self._logs.setdefault(session_id, [])
         self._last_activity[session_id] = time.time()
         self._tasks[session_id] = asyncio.create_task(self._daemon_loop(session_id, idle_threshold_seconds))
+        await self._persist()
         return {
             "session_id": session_id,
             "kairos": "enabled",
@@ -131,13 +161,21 @@ class KairosController:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self._persist()
         return {"session_id": session_id, "kairos": "disabled"}
 
     async def get_log(self, session_id: str, lines: int = 50) -> dict[str, Any]:
+        centralized: list[str] = []
+        if self._log_handler and hasattr(self._log_handler, "lines"):
+            tag = f"[{session_id}]"
+            all_lines = self._log_handler.lines
+            centralized = [l for l in all_lines if tag in l]
+        internal = self._logs.get(session_id, [])
+        combined = centralized + internal
         return {
             "session_id": session_id,
-            "lines": [], # Deprecated in favor of global logger
-            "total_entries": 0,
+            "lines": combined[-lines:],
+            "total_entries": len(combined),
         }
 
     # -------------------------------------------------------------------------
@@ -146,35 +184,37 @@ class KairosController:
 
     async def _daemon_loop(self, session_id: str, idle_threshold: int) -> None:
         log = self._logs.setdefault(session_id, [])
-        consolidation_count = 0
+        self._consolidation_count.setdefault(session_id, 0)
 
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(POLL_SECONDS)
 
             session = self._sessions.get(session_id)
             if not session or session.snapshot()["status"] != "running":
                 logger.info(f"[{session_id}] Session gone or stopped. KAIROS exiting.")
                 break
 
+            if self._consolidation_count[session_id] >= MAX_CONSOLIDATIONS:
+                logger.info(f"[{session_id}] Reached max {MAX_CONSOLIDATIONS} consolidations. KAIROS disabling.")
+                break
+
             last_active = self._last_activity.get(session_id, time.time())
             idle_seconds = int(time.time() - last_active)
 
             if idle_seconds < idle_threshold:
-                # logger.debug(...) to avoid noise, but for now we keep it quiet
                 continue
 
-            # Idle threshold reached — attempt autoDream consolidation
-            logger.info(f"[{session_id}] Idle for {idle_seconds}s. Starting autoDream consolidation #{consolidation_count + 1}...")
+            logger.info(f"[{session_id}] Idle for {idle_seconds}s. Starting autoDream consolidation #{self._consolidation_count[session_id] + 1}...")
             try:
                 result = await self._consolidate(session, log)
                 if result.get("skipped"):
-                    pass  # already logged inside _consolidate
+                    pass
                 elif result.get("aborted"):
                     logger.info(f"[{session_id}] Consolidation aborted — session became active.")
                 else:
-                    consolidation_count += 1
-                    logger.info(f"[{session_id}] Consolidation #{consolidation_count} complete. MEMORY.md updated ({result.get('memory_length', '?')} chars).")
-                # Reset idle clock regardless so we don't immediately re-trigger
+                    self._consolidation_count[session_id] += 1
+                    await self._persist()
+                    logger.info(f"[{session_id}] Consolidation #{self._consolidation_count[session_id]} complete. MEMORY.md updated ({result.get('memory_length', '?')} chars).")
                 self._last_activity[session_id] = time.time()
             except Exception as e:
                 logger.error(f"[{session_id}] Consolidation error: {e}")

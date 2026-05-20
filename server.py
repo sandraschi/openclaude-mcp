@@ -21,9 +21,12 @@ Prefab UI:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import tempfile
+import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
@@ -31,20 +34,22 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import logging
-import time
 import uvicorn
 from fastmcp import Context, FastMCP
+from fastmcp.server import create_proxy
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
 from openclaude.kairos import KairosController
+from openclaude.logging_util import get_logger
+from openclaude.logging_util import logger as app_logger
 from openclaude.model_router import ModelRouter
 from openclaude.session import OpenClaudeSession, SessionStore
-from openclaude.logging_util import logger as app_logger, get_logger
+from openclaude.session_persistence import cleanup_stale, load_sessions, save_sessions
 
 # ---------------------------------------------------------------------------
 # Logging — capture logs for web UI
@@ -77,7 +82,7 @@ class WebLogHandler(logging.Handler):
 
 # Attach WebLogHandler to our unified app logger
 GLOBAL_LOG_HANDLER = WebLogHandler()
-GLOBAL_LOG_HANDLER.setFormatter(logging.Formatter('%(message)s'))
+GLOBAL_LOG_HANDLER.setFormatter(logging.Formatter("%(message)s"))
 app_logger.addHandler(GLOBAL_LOG_HANDLER)
 
 # Root logger — still route console output but keep it quiet
@@ -89,14 +94,56 @@ for log_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
     uv_logger.addHandler(GLOBAL_LOG_HANDLER)
     uv_logger.propagate = False # avoid double logs
 
-class LogBuffer:
-    """Compatibility shim for existing GLOBAL_LOGS.lines references."""
-    @property
-    def lines(self) -> list[str]:
-        return GLOBAL_LOG_HANDLER.lines
-
-GLOBAL_LOGS = LogBuffer()
 logger = get_logger("server")
+
+# ---------------------------------------------------------------------------
+# SSE event bus — pushes real-time state changes to the webapp
+# ---------------------------------------------------------------------------
+
+_event_subscribers: list[asyncio.Queue] = []
+
+
+async def _broadcast(event: str, data: dict[str, Any]) -> None:
+    payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    for q in _event_subscribers:
+        await q.put(payload)
+
+
+async def _events_handler(request: Request) -> Response:
+    queue: asyncio.Queue = asyncio.Queue()
+    _event_subscribers.append(queue)
+
+    async def event_stream():
+        try:
+            while True:
+                payload = await queue.get()
+                yield payload.encode("utf-8")
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if queue in _event_subscribers:
+                _event_subscribers.remove(queue)
+
+    return Response(
+        content=event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _notify_sessions() -> None:
+    """Push a snapshot event to all SSE subscribers."""
+    snapshot = {"sessions": [s.snapshot() for s in sessions.all()]}
+    asyncio.create_task(_broadcast("sessions", snapshot))
+
+
+def _notify_logs() -> None:
+    asyncio.create_task(_broadcast("logs", {"lines": GLOBAL_LOG_HANDLER.lines}))
+
 
 # ---------------------------------------------------------------------------
 # Core objects
@@ -104,10 +151,13 @@ logger = get_logger("server")
 
 sessions = SessionStore()
 model_router = ModelRouter()
-kairos = KairosController(sessions)
+kairos = KairosController(sessions, GLOBAL_LOG_HANDLER)
 
 OLLAMA_BASE = "http://localhost:11434"
 BACKEND_PORT = int(os.environ.get("OPENCLAUDE_MCP_PORT", "10932"))
+AUTH_TOKEN = os.environ.get("OPENCLAUDE_MCP_TOKEN") or None
+CAREGIVER_WEBHOOK_URL = os.environ.get("CAREGIVER_WEBHOOK_URL") or None
+OPENCLAUDE_ULTRAPLAN_MODEL = os.environ.get("OPENCLAUDE_ULTRAPLAN_MODEL", "claude-sonnet-4-6")
 
 # ---------------------------------------------------------------------------
 # Prefab UI — optional dependency check (import only, no mcp reference yet)
@@ -139,10 +189,21 @@ async def lifespan(server: FastMCP) -> Any:  # noqa: ANN401
             print(f"  Ollama OK — {len(models)} model(s)")
     except Exception:
         print("  WARNING: Ollama not reachable on :11434")
+
+    # Restore sessions from disk
+    saved = await load_sessions()
+    if saved:
+        print(f"  Found {len(saved)} persisted session(s) — rehydrating ({len([s for s in saved if s.get('pid')])} with PIDs)")
+
+    # Restore KAIROS state
+    await kairos.load_persisted_state()
+
     yield
+
     print("Shutting down — stopping all sessions...")
     for s in sessions.all():
         await s.stop()
+    await save_sessions(sessions.all())
 
 
 mcp = FastMCP(
@@ -156,6 +217,14 @@ mcp = FastMCP(
     lifespan=lifespan,
 )
 
+# MCP Bridge — proxy remote MCP servers via ProxyProvider
+MCP_BRIDGE_URLS = os.environ.get("MCP_BRIDGE_URLS", "")
+if MCP_BRIDGE_URLS:
+    for url in MCP_BRIDGE_URLS.split(","):
+        url = url.strip()
+        if url:
+            mcp.add_provider(create_proxy(url))
+
 # ---------------------------------------------------------------------------
 # Prefab fleet dashboard — registered after mcp is instantiated
 # ---------------------------------------------------------------------------
@@ -166,23 +235,31 @@ if _PREFAB_AVAILABLE:
     _fleet_tool_kwargs["app"] = True
 
 
+async def _build_fleet_data() -> dict[str, Any]:
+    all_sessions = sessions.all()
+    model_data = await model_router.list_models()
+    running = [s for s in all_sessions if s.snapshot()["status"] == "running"]
+    kairos_active = [s for s in running if s.kairos_enabled]
+    return {
+        "all_sessions": all_sessions,
+        "running": running,
+        "kairos_active": kairos_active,
+        "default_model": model_router.default,
+        "ollama_running": model_data.get("ollama_running", False),
+    }
+
+
 @mcp.tool(**_fleet_tool_kwargs)
 async def fleet_dashboard(ctx: Context | None = None) -> Any:
     """Fleet status — returns Prefab UI when available, plain dict otherwise."""
-    all_sessions = sessions.all()
-    model_data = await model_router.list_models()
-    default_model = model_data.get("default", "gemma4:26b-a4b")
-    ollama_ok = model_data.get("ollama_running", False)
-    running = [s for s in all_sessions if s.snapshot()["status"] == "running"]
-    kairos_active = [s for s in running if s.kairos_enabled]
-
+    fleet = await _build_fleet_data()
     if not _PREFAB_AVAILABLE:
         return {
-            "active_sessions": len(running),
-            "kairos_daemons": len(kairos_active),
-            "default_model": default_model,
-            "ollama": "online" if ollama_ok else "offline",
-            "sessions": [s.snapshot() for s in all_sessions],
+            "active_sessions": len(fleet["running"]),
+            "kairos_daemons": len(fleet["kairos_active"]),
+            "default_model": fleet["default_model"],
+            "ollama": "online" if fleet["ollama_running"] else "offline",
+            "sessions": [s.snapshot() for s in fleet["all_sessions"]],
             "_note": "Install fastmcp[apps] for rich Prefab UI rendering",
         }
 
@@ -195,15 +272,15 @@ async def fleet_dashboard(ctx: Context | None = None) -> Any:
             "KAIROS": "yes" if s.kairos_enabled else "-",
             "Uptime": f"{s.snapshot()['elapsed_seconds']}s",
         }
-        for s in all_sessions
+        for s in fleet["all_sessions"]
     ]
 
     return Column(
         Row(
-            Badge(f"Sessions: {len(running)}", color="green" if running else "gray"),
-            Badge(f"KAIROS: {len(kairos_active)}", color="amber" if kairos_active else "gray"),
-            Badge(f"Ollama: {'online' if ollama_ok else 'offline'}", color="green" if ollama_ok else "red"),
-            Badge(f"Default: {default_model.split(':')[0]}", color="blue"),
+            Badge(f"Sessions: {len(fleet['running'])}", color="green" if fleet["running"] else "gray"),
+            Badge(f"KAIROS: {len(fleet['kairos_active'])}", color="amber" if fleet["kairos_active"] else "gray"),
+            Badge(f"Ollama: {'online' if fleet['ollama_running'] else 'offline'}", color="green" if fleet["ollama_running"] else "red"),
+            Badge(f"Default: {fleet['default_model'].split(':')[0]}", color="blue"),
         ),
         Table(data=rows) if rows else Text("No sessions running.", variant="muted"),
     )
@@ -212,14 +289,13 @@ async def fleet_dashboard(ctx: Context | None = None) -> Any:
 @mcp.tool(description="Get raw fleet status data")
 async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
     """Backend tool — raw fleet data."""
-    all_sessions = sessions.all()
-    model_data = await model_router.list_models()
+    fleet = await _build_fleet_data()
     return {
-        "active_sessions": len([s for s in all_sessions if s.snapshot()["status"] == "running"]),
-        "total_sessions": len(all_sessions),
-        "kairos_active": len([s for s in all_sessions if s.kairos_enabled]),
-        "default_model": model_data.get("default"),
-        "ollama_running": model_data.get("ollama_running", False),
+        "active_sessions": len(fleet["running"]),
+        "total_sessions": len(fleet["all_sessions"]),
+        "kairos_active": len(fleet["kairos_active"]),
+        "default_model": fleet["default_model"],
+        "ollama_running": fleet["ollama_running"],
     }
 
 # ---------------------------------------------------------------------------
@@ -258,15 +334,30 @@ async def caregiver_alert(session_id: str, risk_topic: str, reason: str, ctx: Co
         reason: Context for why this was flagged.
     """
     alert_msg = f"[CAREGIVER ALERT] Session: {session_id} | Topic: {risk_topic} | Reason: {reason}"
-    if ctx:
-        ctx.info(alert_msg)
-    else:
-        print(f"\n{alert_msg}\n")
+    logger.warning(alert_msg)
+
+    alert_file = Path(tempfile.gettempdir()) / "openclaude_caregiver_alerts.log"
+    try:
+        with open(alert_file, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {alert_msg}\n")
+    except OSError as e:
+        logger.error(f"Could not write caregiver alert file: {e}")
+
+    if CAREGIVER_WEBHOOK_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                await client.post(
+                    CAREGIVER_WEBHOOK_URL,
+                    json={"session_id": session_id, "risk_topic": risk_topic, "reason": reason, "timestamp": time.time()},
+                )
+        except Exception as e:
+            logger.error(f"Caregiver webhook failed: {e}")
 
     return {
         "success": True,
         "message": "Caregivers have been notified of this high-risk request.",
         "alert_logged": True,
+        "alert_file": str(alert_file),
     }
 
 
@@ -370,6 +461,7 @@ async def start_session(
     session.on_activity = lambda: kairos.record_activity(session_id)
     if enable_kairos:
         await kairos.attach(session_id)
+    _notify_sessions()
     return {
         "session_id": session_id,
         "model": model,
@@ -391,6 +483,21 @@ async def send_prompt(session_id: str, prompt: str, ctx: Context | None = None) 
     if not session:
         return {"error": f"No session with id {session_id}"}
     return await session.send(prompt)
+
+
+@mcp.tool()
+async def send_multimodal(session_id: str, text: str, image_paths: list[str] | None = None, ctx: Context | None = None) -> dict[str, Any]:
+    """Send a prompt with image attachments to a running OpenClaude session.
+
+    Args:
+        session_id: From start_session.
+        text: Natural language instruction.
+        image_paths: Optional list of image file paths (png, jpeg, webp, gif).
+    """
+    session = sessions.get(session_id)
+    if not session:
+        return {"error": f"No session with id {session_id}"}
+    return await session.send_multimodal(text, image_paths)
 
 
 @mcp.tool()
@@ -417,6 +524,7 @@ async def stop_session(session_id: str, ctx: Context | None = None) -> dict[str,
     await kairos.detach(session_id)
     await session.stop()
     sessions.remove(session_id)
+    _notify_sessions()
     return {"session_id": session_id, "status": "stopped"}
 
 
@@ -449,7 +557,7 @@ async def kairos_log(session_id: str, lines: int = 50, _ctx: Context | None = No
 
 @mcp.tool()
 async def ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> dict[str, Any]:
-    """Route a complex planning goal to Anthropic Opus for deep planning (up to 30 min),
+    """Route a complex planning goal to Anthropic for deep planning (up to 30 min),
     then feed the resulting plan into the local session for execution.
 
     KAIROS handles memory. ULTRAPLAN handles planning. Local model executes.
@@ -457,7 +565,7 @@ async def ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> d
 
     Args:
         session_id: Local session that will execute the resulting plan.
-        goal: High-level goal description for the Opus planning model.
+        goal: High-level goal description for the planning model.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -486,20 +594,36 @@ async def ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> d
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-opus-4-6",
+                    "model": OPENCLAUDE_ULTRAPLAN_MODEL,
                     "max_tokens": 8192,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": user_message}],
                 },
             )
             response.raise_for_status()
-            plan_text = response.json()["content"][0]["text"]
+            data = response.json()
+            plan_text = data["content"][0]["text"]
+            input_tokens = data.get("usage", {}).get("input_tokens", 0)
+            output_tokens = data.get("usage", {}).get("output_tokens", 0)
     except httpx.HTTPStatusError as e:
         return {"error": f"Anthropic API {e.response.status_code}", "detail": e.response.text}
+    except httpx.TimeoutException:
+        return {"error": "Anthropic API timed out after 30 minutes."}
+    except httpx.ConnectError:
+        return {"error": "Could not connect to Anthropic API. Check network."}
     except Exception as e:
         return {"error": str(e)}
     feed_result = await session.send(f"ULTRAPLAN — execute this plan step by step:\n\n{plan_text}")
-    return {"status": "ok", "session_id": session_id, "goal": goal, "plan": plan_text, "session_feed": feed_result}
+    logger.info(f"[ULTRAPLAN] {OPENCLAUDE_ULTRAPLAN_MODEL} — goal: {goal[:80]} — tokens: {input_tokens} in / {output_tokens} out")
+    return {
+        "status": "ok",
+        "session_id": session_id,
+        "goal": goal,
+        "model": OPENCLAUDE_ULTRAPLAN_MODEL,
+        "plan": plan_text,
+        "session_feed": feed_result,
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +640,7 @@ TOOL_REGISTRY: dict[str, Any] = {
     "model_status": model_status,
     "start_session": start_session,
     "send_prompt": send_prompt,
+    "send_multimodal": send_multimodal,
     "session_status": session_status,
     "list_sessions": list_sessions,
     "stop_session": stop_session,
@@ -524,7 +649,7 @@ TOOL_REGISTRY: dict[str, Any] = {
     "kairos_log": kairos_log,
     "ultraplan": ultraplan,
     "caregiver_alert": caregiver_alert,
-    "fleet_status": fleet_dashboard,
+    "fleet_status": fleet_status,
 }
 
 # ---------------------------------------------------------------------------
@@ -544,16 +669,20 @@ async def _rest_tool_handler(request: Request) -> JSONResponse:
         args = {}
     try:
         result = await fn(**args, ctx=None)
-        return JSONResponse(result)
     except TypeError as e:
         return JSONResponse({"error": f"Bad arguments: {e}"}, status_code=400)
     except Exception as e:
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+    # Serialize separately to catch non-JSON-serializable results (e.g. Prefab UI components)
+    try:
+        return JSONResponse(result)
+    except TypeError as e:
+        return JSONResponse({"error": f"Response not serializable: {e}", "result_preview": str(result)[:200]}, status_code=500)
 
 
 async def _logs_handler(_request: Request) -> JSONResponse:
-    return JSONResponse({"lines": GLOBAL_LOGS.lines})
+    return JSONResponse({"lines": GLOBAL_LOG_HANDLER.lines})
 
 
 async def _health_handler(_request: Request) -> JSONResponse:
@@ -605,6 +734,15 @@ async def _capabilities_handler(_request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if AUTH_TOKEN and not request.url.path.startswith("/sse"):
+            auth = request.headers.get("Authorization", "")
+            if auth != f"Bearer {AUTH_TOKEN}":
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
+
+
 def build_app() -> Starlette:
     mcp_asgi = mcp.http_app(transport="sse", path="/sse")
 
@@ -613,6 +751,7 @@ def build_app() -> Starlette:
         Route("/api/health", _health_handler, methods=["GET"]),
         Route("/api/capabilities", _capabilities_handler, methods=["GET"]),
         Route("/api/logs/system", _logs_handler, methods=["GET"]),
+        Route("/api/events", _events_handler, methods=["GET"]),
         Mount("/", app=mcp_asgi),
     ]
     app = Starlette(routes=routes)
@@ -622,6 +761,8 @@ def build_app() -> Starlette:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if AUTH_TOKEN:
+        app.add_middleware(AuthMiddleware)
     return app
 
 

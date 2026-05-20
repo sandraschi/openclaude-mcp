@@ -32,6 +32,21 @@ export async function getCapabilities() {
   return r.json()
 }
 
+export function subscribeSessions(onSessions: (data: any) => void, onLogs: (data: any) => void) {
+  const es = new EventSource(`${BASE}/api/events`)
+  es.addEventListener('sessions', (e) => {
+    try { onSessions(JSON.parse(e.data)) } catch {}
+  })
+  es.addEventListener('logs', (e) => {
+    try { onLogs(JSON.parse(e.data)) } catch {}
+  })
+  es.addEventListener('error', () => {
+    // Will auto-reconnect; log only for debugging
+    console.debug('SSE connection error, reconnecting...')
+  })
+  return () => es.close()
+}
+
 export const api = {
   // Models
   listModels: () => callTool('list_models'),
@@ -55,6 +70,8 @@ export const api = {
   }),
   sendPrompt: (session_id: string, prompt: string) =>
     callTool('send_prompt', { session_id, prompt }),
+  sendMultimodal: (session_id: string, text: string, image_paths: string[]) =>
+    callTool('send_multimodal', { session_id, text, image_paths }),
   sessionStatus: (session_id: string) =>
     callTool('session_status', { session_id }),
   listSessions: () => callTool('list_sessions'),

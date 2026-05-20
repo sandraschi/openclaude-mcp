@@ -72,7 +72,7 @@ class TestCapabilitiesEndpoint:
         r = client.get("/api/capabilities")
         data = r.json()
         assert "supported_models" in data
-        assert "gemma4:26b-a4b" in data["supported_models"]
+        assert "gemma4:26b" in data["supported_models"]
 
     def test_capabilities_has_tools(self, client):
         r = client.get("/api/capabilities")
@@ -102,7 +102,7 @@ class TestToolEndpoints:
         assert r.status_code == 200
         data = r.json()
         assert "known_models" in data
-        assert "gemma4:26b-a4b" in data["known_models"]
+        assert "gemma4:26b" in data["known_models"]
 
     def test_set_default_model(self, client):
         r = client.post("/tools/set_default_model", json={"model_tag": "qwen3.5:35b-a3b"})
@@ -111,7 +111,7 @@ class TestToolEndpoints:
         assert data["default"] == "qwen3.5:35b-a3b"
         assert data["status"] == "ok"
         # reset
-        client.post("/tools/set_default_model", json={"model_tag": "gemma4:26b-a4b"})
+        client.post("/tools/set_default_model", json={"model_tag": "gemma4:26b"})
 
     def test_session_status_nonexistent(self, client):
         r = client.post("/tools/session_status", json={"session_id": "doesnotexist"})

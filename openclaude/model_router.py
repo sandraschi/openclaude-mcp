@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 OLLAMA_BASE = "http://localhost:11434"
+
+def _defaults_file() -> Path:
+    return Path(os.environ.get("OPENCLAUDE_CONFIG_DIR", str(Path.home() / ".config" / "openclaude"))) / "default_model.json"
 
 
 class ModelRouter:
@@ -93,7 +99,30 @@ class ModelRouter:
     }
 
     def __init__(self) -> None:
-        self.default = "gemma4:26b"
+        saved = self._load_default()
+        self.default = saved or "gemma4:26b"
+
+    def _load_default(self) -> str | None:
+        defaults_file = _defaults_file()
+        try:
+            if defaults_file.exists():
+                data = json.loads(defaults_file.read_text(encoding="utf-8"))
+                return data.get("default_model")
+        except Exception:
+            pass
+        return None
+
+    def _save_default(self) -> None:
+        defaults_file = _defaults_file()
+        try:
+            defaults_file.parent.mkdir(parents=True, exist_ok=True)
+            defaults_file.write_text(
+                json.dumps({"default_model": self.default}, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Could not persist default model: {e}")
 
     async def list_models(self) -> dict[str, Any]:
         available: list[str] = []
@@ -122,6 +151,7 @@ class ModelRouter:
 
     async def set_default(self, tag: str) -> dict[str, Any]:
         self.default = tag
+        self._save_default()
         return {"default": self.default, "status": "ok"}
 
     async def status(self, tag: str | None = None) -> dict[str, Any]:

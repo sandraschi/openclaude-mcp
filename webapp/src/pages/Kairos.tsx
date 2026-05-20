@@ -38,7 +38,8 @@ export function Kairos() {
           <div><span className="text-zinc-400">Prune:</span> rewrites MEMORY.md — vague observations become durable facts</div>
           <div className="pt-1 text-zinc-600">
             Triggers when the session is idle for the configured threshold.
-            LLM consolidation call is stubbed — loop runs and logs; wire the Ollama call to complete.
+            Uses the local Ollama model to merge observations, remove contradictions, and rewrite MEMORY.md.
+            Consolidation logging is available in the System Logs page and below.
           </div>
         </div>
       </div>

@@ -5,12 +5,14 @@ import {
   ChevronRight, CheckCircle, XCircle, Activity,
 } from 'lucide-react'
 import { useStore, Page } from './store'
+import { subscribeSessions } from './api'
 import { Dashboard } from './pages/Dashboard'
 import { Sessions } from './pages/Sessions'
 import { Models } from './pages/Models'
 import { Kairos } from './pages/Kairos'
 import { SettingsPage } from './pages/SettingsPage'
 import { HelpPage } from './pages/HelpPage'
+import { Examples } from './pages/Examples'
 import { LoggerPage } from './pages/LoggerPage'
 
 const NAV: { id: Page; label: string; Icon: any }[] = [
@@ -18,6 +20,7 @@ const NAV: { id: Page; label: string; Icon: any }[] = [
   { id: 'sessions', label: 'Sessions', Icon: Terminal },
   { id: 'models', label: 'Models', Icon: Cpu },
   { id: 'kairos', label: 'KAIROS', Icon: Brain },
+  { id: 'examples', label: 'Examples', Icon: BookOpen },
   { id: 'logs', label: 'Logs', Icon: Activity },
   { id: 'help', label: 'Help', Icon: BookOpen },
   { id: 'settings', label: 'Settings', Icon: Settings },
@@ -117,6 +120,7 @@ function PageContent() {
     sessions: <Sessions />,
     models: <Models />,
     kairos: <Kairos />,
+    examples: <Examples />,
     logs: <LoggerPage />,
     help: <HelpPage />,
     settings: <SettingsPage />,
@@ -139,15 +143,15 @@ function PageContent() {
 // ---------------------------------------------------------------------------
 
 export default function App() {
-  const { fetchModels, fetchSessions } = useStore()
+  const { fetchModels, setSessions, setSystemLogs } = useStore()
 
   useEffect(() => {
     fetchModels()
-    fetchSessions()
-    const id = setInterval(() => {
-      fetchSessions()
-    }, 8000)
-    return () => clearInterval(id)
+    const unsub = subscribeSessions(
+      (data) => setSessions(data.sessions ?? []),
+      (data) => setSystemLogs(data.lines ?? []),
+    )
+    return unsub
   }, [])
 
   return (

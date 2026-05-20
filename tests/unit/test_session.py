@@ -108,12 +108,21 @@ class TestOpenClaudeSessionStart:
         mock_proc = MagicMock()
         mock_proc.returncode = None
         mock_proc.pid = 12345
-        mock_proc.stdout = AsyncMock()
-        mock_proc.stdout.readline = AsyncMock(return_value=b"")
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(return_value=b"")
+        mock_proc.stdout = mock_stdout
+        mock_stderr = AsyncMock()
+        mock_stderr.readline = AsyncMock(return_value=b"")
+        mock_proc.stderr = mock_stderr
         mock_proc.stdin = MagicMock()
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            await s.start()
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("openclaude.session.OpenClaudeSession._check_provisioning", new_callable=AsyncMock),
+            patch("openclaude.session.OpenClaudeSession._resolve_command", return_value=["node", "cli.mjs"]),
+        ):
+            s._status = "provisioning"
+            await s._startup_sequence()
 
         assert s._status == "running"
         assert s._process is mock_proc
@@ -127,8 +136,13 @@ class TestOpenClaudeSessionStart:
             model="gemma4:26b-a4b",
             env={},
         )
-        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
-            await s.start()
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("not found")),
+            patch("openclaude.session.OpenClaudeSession._check_provisioning", new_callable=AsyncMock),
+            patch("openclaude.session.OpenClaudeSession._resolve_command", return_value=["node", "cli.mjs"]),
+        ):
+            s._status = "provisioning"
+            await s._startup_sequence()
 
         assert s._status == "error"
         assert "not found" in s._last_output.lower()

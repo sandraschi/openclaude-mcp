@@ -27,3 +27,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+_dashboard/

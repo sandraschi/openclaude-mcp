@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 10933,
+    strictPort: true,
     host: true,
     proxy: {
       '/tools': 'http://localhost:10932',

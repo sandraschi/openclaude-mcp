@@ -7,6 +7,7 @@ OpenClaude is a Node.js CLI that implements the Claude Code SDK wire protocol:
 
 Key message types we care about:
   stdin  → {"type":"user","session_id":"","message":{"role":"user","content":"..."},"parent_tool_use_id":null}
+  stdin  → {"type":"user","session_id":"","message":{"role":"user","content":[{"type":"text","text":"..."},{"type":"image","source":{...}}]},"parent_tool_use_id":null}
   stdout ← {"type":"assistant","message":{...}}        — model response chunks
   stdout ← {"type":"system","subtype":"turn_complete"} — turn is done
   stdout ← {"type":"result","subtype":"success",...}   — print-mode final result
@@ -25,6 +26,9 @@ v1 (2026-04-05): EOT sentinel approach — BROKEN. openclaude calls JSON.parse()
 v2 (2026-04-06): NDJSON protocol — correct. User messages sent as JSON objects,
   turn completion detected by watching for 'system'/'turn_complete' or
   'result'/'success' stdout messages.
+
+v4 (2026-05-02): Usage analytics + multimodal. Tracks total_prompts, output chars,
+  estimated input tokens. Accepts image content blocks in messages.
 """
 
 from __future__ import annotations
@@ -33,11 +37,15 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from openclaude.logging_util import get_logger
 
@@ -48,8 +56,8 @@ logger = get_logger("session")
 SEND_TIMEOUT_SECONDS = 180
 
 # Default paths for zero-friction startup
-OPENCLAUDE_DIR = Path(r"D:\Dev\repos\external\openclaude")
-DEFAULT_WORKING_DIR = Path(r"D:\Dev\repos\claude-code-1")
+OPENCLAUDE_DIR = Path(os.environ.get("OPENCLAUDE_DIR", r"D:\Dev\repos\external\openclaude"))
+DEFAULT_WORKING_DIR = Path(os.environ.get("OPENCLAUDE_DEFAULT_WORKING_DIR", r"D:\Dev\repos\claude-code-1"))
 
 
 @dataclass
@@ -77,26 +85,42 @@ class OpenClaudeSession:
     _turn_response_lines: list[str] = field(default_factory=list, init=False, repr=False)
     _turn_in_flight: bool = field(default=False, init=False, repr=False)
 
+    # Usage analytics
+    total_prompts: int = field(default=0, init=False, repr=False)
+    total_output_chars: int = field(default=0, init=False, repr=False)
+
     # -------------------------------------------------------------------------
     # Provisioning helpers
     # -------------------------------------------------------------------------
 
     async def _install_bun(self) -> None:
-        """Detect and install Bun if missing."""
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                "bun --version", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            await proc.wait()
-            if proc.returncode == 0:
-                return
-        except Exception:
-            pass
+        """Detect and install Bun if missing — downloads the installer script directly."""
+        if shutil.which("bun"):
+            return
 
-        self._last_output = "Provisioning: Bun missing. Installing via PowerShell..."
-        install_cmd = 'powershell -c "irm bun.sh/install.ps1|iex"'
-        proc = await asyncio.create_subprocess_shell(
-            install_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        self._last_output = "Provisioning: Bun missing. Installing..."
+
+        bun_home = Path(os.environ.get("BUN_INSTALL", ""))
+        bun_bin = bun_home / "bin" / "bun"
+        if bun_bin.exists():
+            path = os.environ.get("PATH", "")
+            if str(bun_bin.parent) not in path:
+                os.environ["PATH"] = f"{bun_bin.parent};{path}"
+            self._last_output = "Provisioning: Bun found at BUN_INSTALL."
+            return
+
+        install_url = "https://bun.sh/install"
+        install_script_path = Path(tempfile.gettempdir()) / "bun_install.sh"
+
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            response = await client.get(install_url)
+            response.raise_for_status()
+            install_script_path.write_bytes(response.content)
+
+        proc = await asyncio.create_subprocess_exec(
+            "bash", str(install_script_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
         stdout, _ = await proc.communicate()
         if proc.returncode != 0:
@@ -108,6 +132,7 @@ class OpenClaudeSession:
             if str(bun_bin) not in path:
                 os.environ["PATH"] = f"{bun_bin};{path}"
 
+        install_script_path.unlink(missing_ok=True)
         self._last_output = "Provisioning: Bun installed successfully."
 
     async def _run_build(self) -> None:
@@ -269,8 +294,10 @@ class OpenClaudeSession:
                     if len(self._output_buffer) > 200:
                         self._output_buffer = self._output_buffer[-200:]
                     self._last_output = "\n".join(self._output_buffer[-50:])
-        except Exception:
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.debug(f"[{self.session_id}] stderr drain exception: {e}")
 
     async def _read_stdout(self) -> None:
         """Background task: read NDJSON stdout, collect turn responses, signal completion."""
@@ -328,8 +355,10 @@ class OpenClaudeSession:
                             self._turn_response_lines.append(result_text)
                         self._turn_event.set()
 
-        except Exception:
+        except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.debug(f"[{self.session_id}] stdout read exception: {e}")
         if self._status == "running":
             self._status = "stopped"
         # Signal any waiting send() calls that we're done
@@ -340,7 +369,30 @@ class OpenClaudeSession:
     # -------------------------------------------------------------------------
 
     async def send(self, prompt: str) -> dict[str, Any]:
-        """Send a prompt via NDJSON protocol and wait for turn_complete."""
+        """Send a text prompt via NDJSON protocol and wait for turn_complete."""
+        return await self._send_message({"role": "user", "content": prompt})
+
+    async def send_multimodal(self, text: str, image_paths: list[str] | None = None) -> dict[str, Any]:
+        """Send a prompt with optional image attachments.
+
+        Images are read from disk, base64-encoded, and sent as content blocks.
+        Supports: png, jpeg, webp, gif.
+        """
+        content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+        if image_paths:
+            for path_str in image_paths:
+                path = Path(path_str)
+                if not path.exists():
+                    return {"error": f"Image not found: {path_str}"}
+                ext = path.suffix.lower().lstrip(".")
+                media_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}.get(ext, "image/png")
+                import base64
+                data = base64.b64encode(path.read_bytes()).decode("ascii")
+                content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}})
+        return await self._send_message({"role": "user", "content": content})
+
+    async def _send_message(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Core send implementation — works for text-only and multimodal messages."""
         if not self._process or self._status != "running":
             return {
                 "error": f"Session {self.session_id} not running (status: {self._status})",
@@ -359,22 +411,31 @@ class OpenClaudeSession:
         user_msg = {
             "type": "user",
             "session_id": "",
-            "message": {"role": "user", "content": prompt},
+            "message": message,
             "parent_tool_use_id": None,
         }
         payload = json.dumps(user_msg, ensure_ascii=False) + "\n"
 
         try:
-            logger.info(f"[{self.session_id}] Send prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+            # Extract text preview for logging
+            content = message.get("content", "")
+            preview = content[:100] if isinstance(content, str) else f"[multimodal {len(content)} blocks]"
+            logger.info(f"[{self.session_id}] Send: {preview}{'...' if isinstance(content, str) and len(content) > 100 else ''}")
             self._process.stdin.write(payload.encode("utf-8"))
             await self._process.stdin.drain()
 
-            # Optimistically add user message to history
-            self._messages.append({"role": "user", "content": prompt})
-            if len(self._messages) > 100: # Slightly larger buffer for history
+            # Increment prompt counter
+            self.total_prompts += 1
+
+            # Store user message in history
+            history_text = content if isinstance(content, str) else f"[multimodal {len(content)} blocks]"
+            self._messages.append({"role": "user", "content": history_text})
+            if len(self._messages) > 100:
                 self._messages = self._messages[-100:]
 
             # Wait for turn_complete or timeout
+            import time as _time
+            turn_start = _time.time()
             try:
                 await asyncio.wait_for(self._turn_event.wait(), timeout=SEND_TIMEOUT_SECONDS)
                 response_text = "\n".join(self._turn_response_lines).strip()
@@ -384,19 +445,23 @@ class OpenClaudeSession:
                 response_text = "\n".join(self._turn_response_lines).strip()
                 if not response_text:
                     response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s — model may still be processing)"
+            turn_duration = _time.time() - turn_start
 
-            # Store assistant response
+            # Track output chars
             if response_text:
+                self.total_output_chars += len(response_text)
                 self._messages.append({"role": "assistant", "content": response_text})
                 if len(self._messages) > 100:
                     self._messages = self._messages[-100:]
 
-            logger.info(f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} response blocks)")
+            logger.info(f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} blocks, {turn_duration:.1f}s)")
             self._last_output = "\n".join(self._output_buffer[-50:])
             return {
                 "session_id": self.session_id,
                 "output": response_text,
                 "model": self.model,
+                "turn_duration_seconds": round(turn_duration, 1),
+                "total_prompts": self.total_prompts,
             }
 
         except BrokenPipeError:
@@ -429,6 +494,7 @@ class OpenClaudeSession:
     def snapshot(self) -> dict[str, Any]:
         elapsed = int(time.time() - self._started_at)
         proc_alive = self._process is not None and self._process.returncode is None
+        raw_pid = self._process.pid if self._process else None
         return {
             "session_id": self.session_id,
             "model": self.model,
@@ -437,9 +503,14 @@ class OpenClaudeSession:
             "kairos_enabled": self.kairos_enabled,
             "elapsed_seconds": elapsed,
             "last_output_preview": self._last_output[:500] if self._last_output else "",
-            "pid": self._process.pid if self._process else None,
+            "pid": raw_pid if isinstance(raw_pid, int) else None,
             "output_lines": len(self._output_buffer),
             "messages": self._messages,
+            "usage": {
+                "total_prompts": self.total_prompts,
+                "total_output_chars": self.total_output_chars,
+                "estimated_input_tokens": sum(len(m.get("content", "")) for m in self._messages if m.get("role") == "user") // 4,
+            },
         }
 
 

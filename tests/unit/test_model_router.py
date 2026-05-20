@@ -10,12 +10,12 @@ pytestmark = pytest.mark.unit
 class TestModelRouterInit:
     def test_default_model(self):
         r = ModelRouter()
-        assert r.default == "gemma4:26b-a4b"
+        assert r.default == "gemma4:26b"
 
     def test_known_models_present(self):
         r = ModelRouter()
-        assert "gemma4:26b-a4b" in r.KNOWN_MODELS
-        assert "gemma4:31b" in r.KNOWN_MODELS
+        assert "gemma4:26b" in r.KNOWN_MODELS
+        assert "gemma4:e4b" in r.KNOWN_MODELS
         assert "qwen3.5:35b-a3b" in r.KNOWN_MODELS
         assert "qwen3.5:27b" in r.KNOWN_MODELS
 
@@ -65,24 +65,24 @@ class TestListModels:
         r = ModelRouter()
         result = await r.list_models()
         assert result["ollama_running"] is True
-        assert result["default"] == "gemma4:26b-a4b"
+        assert result["default"] == "gemma4:26b"
         assert "known_models" in result
-        assert "gemma4:26b-a4b" in result["known_models"]
+        assert "gemma4:26b" in result["known_models"]
 
     @pytest.mark.asyncio
     async def test_list_models_marks_available(self, mock_ollama_ok):
         r = ModelRouter()
         result = await r.list_models()
-        default_meta = result["known_models"]["gemma4:26b-a4b"]
+        default_meta = result["known_models"]["gemma4:26b"]
         assert default_meta["available_in_ollama"] is True
 
     @pytest.mark.asyncio
     async def test_list_models_marks_unavailable(self, mock_ollama_ok):
         r = ModelRouter()
         result = await r.list_models()
-        # gemma4:31b is not in the mocked Ollama response
-        if "gemma4:31b" in result["known_models"]:
-            assert result["known_models"]["gemma4:31b"]["available_in_ollama"] is False
+        # gemma4:e4b is not in the mocked Ollama response
+        if "gemma4:e4b" in result["known_models"]:
+            assert result["known_models"]["gemma4:e4b"]["available_in_ollama"] is False
 
     @pytest.mark.asyncio
     async def test_list_models_ollama_down(self, mock_ollama_down):
@@ -106,7 +106,7 @@ class TestModelStatus:
         r = ModelRouter()
         result = await r.status()
         assert result["ollama_ok"] is True
-        assert result["target"] == "gemma4:26b-a4b"
+        assert result["target"] == "gemma4:26b"
 
     @pytest.mark.asyncio
     async def test_status_specific_model(self, mock_ollama_ok):
@@ -124,6 +124,6 @@ class TestModelStatus:
     @pytest.mark.asyncio
     async def test_status_returns_metadata(self, mock_ollama_ok):
         r = ModelRouter()
-        result = await r.status("gemma4:26b-a4b")
+        result = await r.status("gemma4:26b")
         assert "metadata" in result
         assert result["metadata"]["license"] == "Apache-2.0"

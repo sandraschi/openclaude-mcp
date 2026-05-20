@@ -1,75 +1,120 @@
 # OpenClaude MCP Server
 
-[![FastMCP Version](https://img.shields.io/badge/FastMCP-3.2.0-blue?style=flat-square&logo=python&logoColor=white)](https://github.com/sandraschi/fastmcp) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![Linted with Biome](https://img.shields.io/badge/Linted_with-Biome-60a5fa?style=flat-square&logo=biome&logoColor=white)](https://biomejs.dev/) [![Built with Just](https://img.shields.io/badge/Built_with-Just-000000?style=flat-square&logo=gnu-bash&logoColor=white)](https://github.com/casey/just)
+<p align="center">
+  <a href="https://github.com/casey/just"><img src="https://img.shields.io/badge/just-ready_to_go-7c5cfc?style=flat-square&logo=just&logoColor=white" alt="Just"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://biomejs.dev"><img src="https://img.shields.io/badge/Linted_with-Biome-60a5fa?style=flat-square&logo=biome&logoColor=white" alt="Biome"></a>
+  <a href="https://github.com/PrefectHQ/fastmcp"><img src="https://img.shields.io/badge/FastMCP-3.2-7c5cfc?style=flat-square" alt="FastMCP"></a>
+</p>
 
-A high-performance control plane for Ollama-based local LLM sessions and background memory consolidation. Optimized for RTX 4090 environments and large-context model orchestration.
+A high-performance control plane for Ollama-based local LLM sessions, with background memory consolidation (KAIROS), hybrid cloud planning (ULTRAPLAN), and real-time fleet monitoring. Optimized for RTX 4090 environments.
 
-### 🚀 What is this?
-If you need a reliable way to manage local LLM sessions, monitor VRAM usage, and maintain a structured memory between tasks without manual overhead—this is for you.
+### Features
 
-- **Background Memory (KAIROS)**: Automatically consolidates session data into a persistent `MEMORY.md` using asynchronous background cycles.
-- **Ollama Control Plane**: Comprehensive toolset for model management, health checks, and high-speed local inference.
-- **Hybrid Planning (ULTRAPLAN)**: Optional handoff to Claude Opus for complex reasoning, while maintaining 100% local tool execution.
-- **Fleet Observability**: Integrated React dashboard for real-time monitoring of sessions, models, and memory status.
+- **Background Memory (KAIROS)**: Auto-consolidates session data into `MEMORY.md` using asynchronous background cycles. Configurable poll interval and consolidation budget. State persists across restarts.
+- **Session Management**: Launch, prompt, monitor, and stop multiple OpenClaude subprocesses concurrently. Persistent across restarts with usage analytics (prompts, output chars, estimated tokens).
+- **Multimodal Input**: Send images (png, jpeg, webp, gif) alongside text instructions via the `send_multimodal` tool. Works with any vision-capable Ollama model.
+- **Ollama Control Plane**: Model management with VRAM/speed/context metadata, health checks, default persistence.
+- **Hybrid Planning (ULTRAPLAN)**: Optional cloud Opus/Sonnet handoff for complex reasoning, local execution. Token cost tracking included.
+- **Fleet Observability**: React dashboard with real-time SSE push, xterm.js terminal, system log viewer, KAIROS status, interactive API playground.
+- **Interactive Examples**: Live "Run" buttons on every example — calls the real backend, shows response JSON with timing.
+- **API Reference**: Searchable documentation with parameter tables, return schemas, env vars, error codes for all 15 tools.
+- **Safety Guardrails**: Kid-safe mode with content filters, proactive privacy reminders, caregiver alerts (file + webhook).
+- **Dual Transport**: MCP SSE (Claude Desktop) + REST bridge (webapp/curl) on the same port.
 
 ---
 
 ## Quick Start
 
 ```powershell
-# Install dependencies
-.\setup.ps1
-
-# Start the MCP server + webapp
-.\start.ps1
+git clone https://github.com/sandraschi/openclaude-mcp
+cd openclaude-mcp
+just
 ```
 
-- **SSE Endpoint**: `http://localhost:10932/sse`  
-- **Fleet Dashboard**: `http://localhost:10933`  
+This opens an interactive dashboard showing all available commands. Run `just bootstrap` to install dependencies, then `just serve` or `just dev` to start.
+
+### Manual Setup
+
+If you don't have `just` installed:
+.\setup.ps1
+.\start.ps1
+- **SSE Endpoint**: `http://localhost:10932/sse`
+- **Fleet Dashboard**: `http://localhost:10933`
+- **API Events**: `http://localhost:10932/api/events` (SSE push)
 - **Health API**: `http://localhost:10932/api/health`
+Or with Docker:
+docker compose up
 
----
-
-## Available Tools
+## Available Tools (15)
 
 | Tool | Action |
 |:---|:---|
 | `start_session` | Initialize a new Ollama session |
 | `send_prompt` | Execute a prompt in an active session |
+| `send_multimodal` | Send text + images to a session (png, jpeg, webp, gif) |
+| `session_status` | Get output/status/usage/elapsed of a session |
+| `list_sessions` | List all active sessions |
+| `stop_session` | Stop and clean up a session |
 | `kairos_enable` | Activate background memory consolidation |
 | `kairos_disable` | Halt background memory consolidation |
+| `kairos_log` | Retrieve KAIROS consolidation log |
 | `list_models` | Inventory of available Ollama models |
+| `set_default_model` | Set default model for new sessions |
 | `model_status` | Check VRAM and load status |
 | `ultraplan` | Hybrid cloud/local planning cycle |
-| `fleet_status` | Global health of the instance |
+| `fleet_dashboard` | Prefab UI fleet status overview |
+| `fleet_status` | Raw fleet status JSON |
+| `caregiver_alert` | [KID-SAFE] Notify caregivers of high-risk interaction |
 
 ---
 
 ## Architecture
 
-OpenClaude operates as a unified REST bridge for FastMCP, providing a robust integration layer between local LLM runtimes and agentic workflows. It is hardened for Windows environments with UV dependency management and subprocess isolation.
+```
+                    ┌─────────────────┐
+                    │  Claude Desktop  │── SSE ──────┐
+                    │  Cursor / VSCode │             │
+                    └─────────────────┘             │
+                                                    ▼
+┌──────────────┐  REST  ┌────────────────────────────┐  stdio (NDJSON)  ┌──────────────────┐
+│  React Webapp│───────►│  server.py (FastMCP 3.2)   │◄────────────────│  OpenClaude CLI   │
+│  (SSE push)  │◄───────│  + SessionStore             │    subprocess    │  (Node.js/Bun)    │
+└──────────────┘        │  + ModelRouter              │◄───────────────►│  + Ollama :11434  │
+                        │  + KairosController         │                 └──────────────────┘
+                        │  + SessionPersistence       │
+                        │  + SSE Event Bus            │
+                        └────────────────────────────┘
+```
 
-- [Memory Management](docs/02_KAIROS_AND_MEMORY.md) — KAIROS implementation details
-- [Hybrid Planning](docs/04_ULTRAPLAN.md) — ULTRAPLAN handoff logic
-- [Reliability & Hardening](docs/05_HARDENING.md) — Process management and stability
+## Configuration (env vars)
+
+| Variable | Default | Description |
+|:---|:---|:---|
+| `OPENCLAUDE_MCP_PORT` | `10932` | Backend port |
+| `OPENCLAUDE_MCP_TOKEN` | — | REST auth token (disable if unset) |
+| `OPENCLAUDE_DIR` | `D:\Dev\repos\external\openclaude` | OpenClaude source path |
+| `OPENCLAUDE_ULTRAPLAN_MODEL` | `claude-sonnet-4-6` | Anthropic model for ULTRAPLAN |
+| `OPENCLAUDE_CONFIG_DIR` | `~/.config/openclaude` | Persistence directory |
+| `KAIROS_POLL_SECONDS` | `30` | KAIROS daemon poll interval |
+| `KAIROS_MAX_CONSOLIDATIONS` | `100` | Max consolidations per session |
+| `CAREGIVER_WEBHOOK_URL` | — | Webhook for caregiver alerts |
 
 ## Prerequisites
 
 - [Ollama](https://ollama.ai) (running locally)
 - Node.js (v20+)
 - Python 3.13+ with `uv`
-- Local model pulled (e.g., `gemma2`, `llama3.3`)
+- Local model pulled (e.g., `gemma4:26b`, `qwen3.5:35b-a3b`)
 
+## Test Suite
 
-## 🛡️ Industrial Quality Stack
-
-This project adheres to **SOTA 14.1** industrial standards for high-fidelity agentic orchestration:
-
-- **Python (Core)**: [Ruff](https://astral.sh/ruff) for linting and formatting. Zero-tolerance for `print` statements in core handlers (`T201`).
-- **Webapp (UI)**: [Biome](https://biomejs.dev/) for sub-millisecond linting. Strict `noConsoleLog` enforcement.
-- **Protocol Compliance**: Hardened `stdout/stderr` isolation to ensure crash-resistant JSON-RPC communication.
-- **Automation**: [Justfile](./justfile) recipes for all fleet operations (`just lint`, `just fix`, `just dev`).
-- **Security**: Automated audits via `bandit` and `safety`.
+```powershell
+uv run pytest                    # 79 tests (unit + smoke + integration + e2e)
+uv run pytest tests/unit/        # fast, no external deps
+uv run pytest tests/e2e/         # Anthropic API mocked via respx
+```
 
 ## License
 

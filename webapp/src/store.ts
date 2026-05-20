@@ -32,7 +32,7 @@ export interface ModelInfo {
   is_default: boolean
 }
 
-export type Page = 'dashboard' | 'sessions' | 'models' | 'kairos' | 'logs' | 'help' | 'settings'
+export type Page = 'dashboard' | 'sessions' | 'models' | 'kairos' | 'logs' | 'examples' | 'help' | 'settings'
 
 // ---------------------------------------------------------------------------
 // Store
@@ -45,6 +45,7 @@ interface Store {
   sessions: Session[]
   sessionsLoading: boolean
   fetchSessions: () => Promise<void>
+  setSessions: (sessions: Session[]) => void
   stopSession: (id: string) => Promise<void>
   
   selectedSessionId: string | null
@@ -78,6 +79,7 @@ interface Store {
 
   systemLogs: string[]
   fetchSystemLogs: () => Promise<void>
+  setSystemLogs: (logs: string[]) => void
 
   toasts: { id: string; msg: string; type: 'ok' | 'err' }[]
   toast: (msg: string, type?: 'ok' | 'err') => void
@@ -93,6 +95,7 @@ export const useStore = create<Store>((set, get) => ({
   // ── Sessions ──────────────────────────────────────────────────────────────
   sessions: [],
   sessionsLoading: false,
+  setSessions: (sessions) => set({ sessions, sessionsLoading: false }),
   fetchSessions: async () => {
     set({ sessionsLoading: true })
     try {
@@ -127,7 +130,7 @@ export const useStore = create<Store>((set, get) => ({
 
   // ── Models ────────────────────────────────────────────────────────────────
   models: {},
-  defaultModel: 'gemma4:26b-a4b',
+  defaultModel: 'gemma4:26b',
   ollamaRunning: false,
   modelsLoading: false,
   fetchModels: async () => {
@@ -137,7 +140,7 @@ export const useStore = create<Store>((set, get) => ({
       const r = await api.listModels()
       set({
         models: r.known_models ?? {},
-        defaultModel: r.default ?? 'gemma4:26b-a4b',
+        defaultModel: r.default ?? 'gemma4:26b',
         ollamaRunning: health?.ollama ?? r.ollama_running ?? false,
       })
     } catch (e: any) {
@@ -229,6 +232,7 @@ export const useStore = create<Store>((set, get) => ({
 
   // ── System Logs ──────────────────────────────────────────────────────────
   systemLogs: [],
+  setSystemLogs: (logs) => set({ systemLogs: logs }),
   fetchSystemLogs: async () => {
     try {
       const r = await api.getSystemLogs()
