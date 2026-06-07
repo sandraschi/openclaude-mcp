@@ -1,19 +1,28 @@
-Param([switch]$Headless)
+﻿param([switch]$Headless, [switch]$BackendOnly, [switch]$NoBrowser)
 
-# --- SOTA Headless Standard ---
 if ($Headless -and ($Host.UI.RawUI.WindowTitle -notmatch 'Hidden')) {
     Start-Process pwsh -ArgumentList '-NoProfile', '-File', $PSCommandPath, '-Headless' -WindowStyle Hidden
     exit
 }
-$WindowStyle = if ($Headless) { 'Hidden' } else { 'Normal' }
-# ------------------------------
 
-$BackendPort = [int]($env:OPENCLAUDE_MCP_PORT ?? 10932)
+$ScriptRoot = $PSScriptRoot
+if ($env:OPENCLAUDE_MCP_PORT) {
+    $BackendPort = [int]$env:OPENCLAUDE_MCP_PORT
+} else {
+    $BackendPort = 10932
+}
 $WebappPort = $BackendPort + 1
+
+$FleetStartPath = Join-Path $ScriptRoot "scripts\FleetStartMode.ps1"
+if (-not (Test-Path -LiteralPath $FleetStartPath)) {
+    Write-Host "ERROR: Missing vendored launcher helper: $FleetStartPath" -ForegroundColor Red
+    exit 1
+}
+. $FleetStartPath
+Stop-FleetPortSquatters -Ports @($BackendPort, $WebappPort) -Label "openclaude-mcp"
 
 Write-Host '=== openclaude-mcp Start ===' -ForegroundColor Cyan
 
-# --- Dependency checks ---
 $hasUv = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $hasUv) {
     Write-Host 'ERROR: uv not found. Install from https://docs.astral.sh/uv/' -ForegroundColor Red
@@ -25,33 +34,19 @@ if (-not $hasOllama) {
     Write-Host 'WARNING: ollama not found on PATH. Sessions will fail to start.' -ForegroundColor Yellow
 }
 
-# --- Kill stale processes on backend port ---
-$existing = Get-NetTCPConnection -LocalPort $BackendPort -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "Port $BackendPort is in use. Stopping existing process..." -ForegroundColor Yellow
-    $existing.OwningProcess | ForEach-Object {
-        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
-    }
-    Start-Sleep -Seconds 2
-}
-
-# --- Sync dependencies ---
 Write-Host 'Syncing Python dependencies...' -ForegroundColor Cyan
-uv sync
+Set-Location $ScriptRoot
+uv sync --project $ScriptRoot
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'ERROR: uv sync failed.' -ForegroundColor Red
     exit 1
 }
 
-# --- Launch backend ---
 Write-Host "Starting backend on :$BackendPort ..." -ForegroundColor Cyan
-$job = Start-Job -ScriptBlock {
-    param($p)
-    uv run python server.py
-} -ArgumentList $BackendPort
+$backendCmd = "`$env:OPENCLAUDE_MCP_PORT='$BackendPort'; Set-Location '$ScriptRoot'; uv run --project '$ScriptRoot' python server.py"
+$BackendProc = Start-Process powershell -ArgumentList "-NoProfile", "-WindowStyle", "Normal", "-Command", $backendCmd -PassThru
 
-# --- Health gate: wait for backend to respond ---
-$maxRetries = 30
+$maxRetries = 45
 $retry = 0
 while ($retry -lt $maxRetries) {
     try {
@@ -60,33 +55,34 @@ while ($retry -lt $maxRetries) {
             Write-Host "Backend healthy on :$BackendPort" -ForegroundColor Green
             break
         }
-    } catch {
-        # Not ready yet
-    }
+    } catch {}
     $retry++
     Start-Sleep -Seconds 1
 }
 
 if ($retry -ge $maxRetries) {
-    Write-Host 'ERROR: Backend failed to respond within 30s.' -ForegroundColor Red
-    Write-Host "Check logs at http://127.0.0.1:$BackendPort/api/logs/system" -ForegroundColor Yellow
+    Write-Host 'ERROR: Backend failed to respond within 45s.' -ForegroundColor Red
     exit 1
 }
 
-Write-Host "  MCP SSE:      http://localhost:$BackendPort/sse" -ForegroundColor Gray
-Write-Host "  REST tools:   http://localhost:$BackendPort/tools/{name}" -ForegroundColor Gray
-Write-Host "  Health:       http://localhost:$BackendPort/api/health" -ForegroundColor Gray
-Write-Host "  Capabilities: http://localhost:$BackendPort/api/capabilities" -ForegroundColor Gray
-Write-Host "  Logs:         http://localhost:$BackendPort/api/logs/system" -ForegroundColor Gray
-
-if (-not $Headless) {
-    Write-Host "`nWebapp URL: http://localhost:$WebappPort" -ForegroundColor Cyan
+if ($BackendOnly) {
+    while (-not $BackendProc.HasExited) { Start-Sleep 2 }
+    exit
 }
 
-# Keep script alive
-while ($job.State -eq 'Running') {
-    Start-Sleep -Seconds 5
-    Receive-Job $job | ForEach-Object { Write-Host $_ }
+$WebRoot = Join-Path $ScriptRoot "webapp"
+if (-not (Test-Path (Join-Path $WebRoot "node_modules"))) {
+    Set-Location $WebRoot
+    npm install
 }
 
-Write-Host 'Backend process exited.' -ForegroundColor Red
+if (-not $NoBrowser -and -not $Headless) {
+    $frontendUrl = "http://127.0.0.1:$WebappPort/"
+    $pollAndOpen = "for (`$i = 0; `$i -lt 60; `$i++) { try { `$null = Invoke-WebRequest -Uri '$frontendUrl' -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop; Start-Process '$frontendUrl'; exit } catch { Start-Sleep -Seconds 1 } }"
+    Start-Process powershell -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-Command", $pollAndOpen
+}
+
+Write-Host "Starting Vite frontend on port $WebappPort ..." -ForegroundColor Green
+Set-Location $WebRoot
+npm run dev
+

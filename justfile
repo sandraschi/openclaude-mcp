@@ -1,4 +1,4 @@
-set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+﻿set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
 
 UV     := "C:/Users/sandr/.local/bin/uv.exe"
 NAME   := "openclaude-mcp"
@@ -9,7 +9,7 @@ PORT   := "10932"
 
 # Open the interactive recipe dashboard in the browser
 default:
-    @pwsh.exe -NoProfile -ExecutionPolicy Bypass -File ../mcp-central-docs/scripts/just-dashboard.ps1 -Path .
+    @just --list
 
 # ── Operation ─────────────────────────────────────────────────────────────────
 
@@ -160,3 +160,4 @@ kill-port:
     $conn = Get-NetTCPConnection -LocalPort {{PORT}} -ErrorAction SilentlyContinue; \
     if ($conn) { Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'Port {{PORT}} cleared.' -ForegroundColor Green } \
     else { Write-Host 'Port {{PORT}} already free.' -ForegroundColor Yellow }
+
