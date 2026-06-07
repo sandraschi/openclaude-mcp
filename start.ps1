@@ -21,6 +21,8 @@ if (-not (Test-Path -LiteralPath $FleetStartPath)) {
 . $FleetStartPath
 Stop-FleetPortSquatters -Ports @($BackendPort, $WebappPort) -Label "openclaude-mcp"
 
+if (-not (Assert-FleetPortsAvailable -Ports @($BackendPort, $WebappPort) -Label "openclaude-mcp")) { exit 1 }
+
 Write-Host '=== openclaude-mcp Start ===' -ForegroundColor Cyan
 
 $hasUv = Get-Command uv -ErrorAction SilentlyContinue
@@ -85,4 +87,5 @@ if (-not $NoBrowser -and -not $Headless) {
 Write-Host "Starting Vite frontend on port $WebappPort ..." -ForegroundColor Green
 Set-Location $WebRoot
 npm run dev
+
 
