@@ -5,11 +5,8 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 tests/
-webapp/node_modules/
-webapp/dist/
-webapp/.vite/
 
-# Discovery & Fleet Metadata (repo-only)
+# Discovery & Fleet Metadata
 glama.json
 llms.txt
 llms-full.txt
@@ -21,18 +18,8 @@ llms-full.txt
 dist/
 build/
 *.mcpb
-*.bak
-*.pyc
 
-# Start scripts (not needed in bundle)
-start.ps1
-start.bat
-setup.ps1
-starts/
-
-# Config
-justfile
-.gitignore
-.mcpbignore
-pyproject.toml
-uv.lock
+# Non-MCP components (webapp, native, scripts)
+native/
+web_sota/
+scripts/

@@ -1,4 +1,5 @@
-﻿set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+import 'scripts/just/fleet.just'
 
 UV     := "C:/Users/sandr/.local/bin/uv.exe"
 NAME   := "openclaude-mcp"
@@ -160,4 +161,3 @@ kill-port:
     $conn = Get-NetTCPConnection -LocalPort {{PORT}} -ErrorAction SilentlyContinue; \
     if ($conn) { Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'Port {{PORT}} cleared.' -ForegroundColor Green } \
     else { Write-Host 'Port {{PORT}} already free.' -ForegroundColor Yellow }
-

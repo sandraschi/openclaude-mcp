@@ -1,0 +1,22 @@
+{
+  "manifest_version": "0.2",
+  "name": "openclaude-mcp",
+  "version": "0.1.0",
+  "description": "MCP control plane for OpenClaude — run Claude Code harness against local Ollama models. Zero cloud token cost. KAIROS autoDream. ULTRAPLAN relay.",
+  "author": { "name": "sandraschi" },
+  "server": {
+    "type": "python",
+    "entry_point": "src/openclaude_mcp/main.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run","--directory","${PWD}","python","-m","openclaude_mcp"],
+      "env": {
+        "PYTHONPATH": "${PWD}/src",
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  },
+  "tools": [
+    { "name": "openclaude-mcp", "description": "MCP control plane for OpenClaude — run Claude Code harness against local Ollama models. Zero cloud token cost. KAIROS autoDream. ULTRAPLAN relay." }
+  ]
+}

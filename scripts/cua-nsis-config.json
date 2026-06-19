@@ -1,0 +1,14 @@
+{
+    "product_name": "Openclaude MCP",
+    "install_dir": "%LOCALAPPDATA%\\Openclaude MCP",
+    "operator_exe": "openclaude-mcp-native.exe",
+    "backend_process_names": ["openclaude-mcp-native", "openclaude-mcp-backend"],
+    "backend_port": 10700,
+    "health_path": "/api/v1/health",
+    "diagnostics_path": "/api/v1/diagnostics",
+    "feature_smoke_path": "/api/v1/system/info",
+    "window_title_re": "Openclaude MCP",
+    "nsis_glob": "native/target/release/bundle/nsis/Openclaude MCP_*_x64-setup.exe",
+    "bridge_ok_text": "REST bridge reachable",
+    "uninstall_registry_filter": "*Openclaude MCP*"
+}

@@ -1,4 +1,5 @@
-﻿param([switch]$Headless, [switch]$BackendOnly, [switch]$NoBrowser)
+param([switch]$Headless, [switch]$BackendOnly, [switch]$NoBrowser,
+    [switch]$ReuseIfRunning)
 
 if ($Headless -and ($Host.UI.RawUI.WindowTitle -notmatch 'Hidden')) {
     Start-Process pwsh -ArgumentList '-NoProfile', '-File', $PSCommandPath, '-Headless' -WindowStyle Hidden
@@ -10,6 +11,13 @@ if ($env:OPENCLAUDE_MCP_PORT) {
     $BackendPort = [int]$env:OPENCLAUDE_MCP_PORT
 } else {
     $BackendPort = 10932
+$FleetStartPath = Join-Path $ProjectRoot "scripts\FleetStartMode.ps1"
+if (-not (Test-Path -LiteralPath $FleetStartPath)) {
+    Write-Host "ERROR: Missing vendored launcher helper: $FleetStartPath" -ForegroundColor Red
+    exit 1
+}
+. $FleetStartPath
+
 }
 $WebappPort = $BackendPort + 1
 
@@ -19,9 +27,7 @@ if (-not (Test-Path -LiteralPath $FleetStartPath)) {
     exit 1
 }
 . $FleetStartPath
-Stop-FleetPortSquatters -Ports @($BackendPort, $WebappPort) -Label "openclaude-mcp"
 
-if (-not (Assert-FleetPortsAvailable -Ports @($BackendPort, $WebappPort) -Label "openclaude-mcp")) { exit 1 }
 
 Write-Host '=== openclaude-mcp Start ===' -ForegroundColor Cyan
 
