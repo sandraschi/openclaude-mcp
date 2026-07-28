@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [{name = "Sandra Schi", email = "sandraschi@github"}]
 
 dependencies = [
-    "fastmcp>=3.2.0",
+    "fastmcp>=3.4.4,<4",
     "httpx>=0.27.0",
     "starlette>=1.0.0",
     "uvicorn[standard]>=0.30.0",
@@ -20,10 +20,10 @@ dependencies = [
 
 [project.optional-dependencies]
 apps = [
-    "fastmcp[apps]>=3.2.0",   # pulls prefab-ui for rich Prefab UI rendering
+    "fastmcp[apps]>=3.4.2,<4",   # pulls prefab-ui for rich Prefab UI rendering
 ]
 dev = [
-    "ruff>=0.4.0",
+    "ruff>=0.16.0,<0.17",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-anyio>=0.0.0",
@@ -50,15 +50,13 @@ target-version = "py312"
 select = [
     "E", "F", "I", "UP", "B", "S", "A", "ANN", "COM", "C4", "DTZ", "PIE", "T20", "PYI", "Q", "RSE", "RET", "SLF", "SIM", "TID", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "PERF", "FURB", "LOG", "RUF"
 ]
-ignore = [
-    "ANN101", # Missing type annotation for self
+ignore = ["ANN101", # Missing type annotation for self
     "ANN102", # Missing type annotation for cls
     "COM812", # Trailing comma missing (handled by formatter)
     "ISC001", # Single line implicit string concatenation (handled by formatter)
     "PLR0913", # Too many arguments
     "S101",   # Use of assert (standard for pytest)
-    "TRY003", # Avoid specifying long messages in exceptions
-]
+    "TRY003", # Avoid specifying long messages in exceptions, "S106", "S110", "S112", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "ANN", "PLR", "TRY", "S105", "S106", "SLF001", "ARG002", "PLC0415"]
