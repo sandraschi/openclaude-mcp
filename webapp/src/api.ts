@@ -5,91 +5,98 @@
  * In prod: same origin (both served from :10932 or reverse-proxied)
  */
 
-const BASE = ''  // relative — Vite proxy handles it in dev
+const BASE = ""; // relative — Vite proxy handles it in dev
 
 async function callTool(name: string, args: Record<string, unknown> = {}) {
   const r = await fetch(`${BASE}/tools/${name}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args),
-  })
+  });
   if (!r.ok) {
-    const err = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(err.error ?? `Tool ${name} failed: ${r.status}`)
+    const err = await r.json().catch(() => ({ error: r.statusText }));
+    throw new Error(err.error ?? `Tool ${name} failed: ${r.status}`);
   }
-  return r.json()
+  return r.json();
 }
 
 export async function getHealth() {
-  const r = await fetch(`${BASE}/api/health`)
-  if (!r.ok) throw new Error('health check failed')
-  return r.json()
+  const r = await fetch(`${BASE}/api/health`);
+  if (!r.ok) throw new Error("health check failed");
+  return r.json();
 }
 
 export async function getCapabilities() {
-  const r = await fetch(`${BASE}/api/capabilities`)
-  if (!r.ok) throw new Error('capabilities fetch failed')
-  return r.json()
+  const r = await fetch(`${BASE}/api/capabilities`);
+  if (!r.ok) throw new Error("capabilities fetch failed");
+  return r.json();
 }
 
-export function subscribeSessions(onSessions: (data: any) => void, onLogs: (data: any) => void) {
-  const es = new EventSource(`${BASE}/api/events`)
-  es.addEventListener('sessions', (e) => {
-    try { onSessions(JSON.parse(e.data)) } catch {}
-  })
-  es.addEventListener('logs', (e) => {
-    try { onLogs(JSON.parse(e.data)) } catch {}
-  })
-  es.addEventListener('error', () => {
-    // Will auto-reconnect; log only for debugging
-    console.debug('SSE connection error, reconnecting...')
-  })
-  return () => es.close()
+export function subscribeSessions(
+  onSessions: (data: any) => void,
+  onLogs: (data: any) => void,
+) {
+  const es = new EventSource(`${BASE}/api/events`);
+  es.addEventListener("sessions", (e) => {
+    try {
+      onSessions(JSON.parse(e.data));
+    } catch {}
+  });
+  es.addEventListener("logs", (e) => {
+    try {
+      onLogs(JSON.parse(e.data));
+    } catch {}
+  });
+  es.addEventListener("error", () => {
+    // Will auto-reconnect
+  });
+  return () => es.close();
 }
 
 export const api = {
   // Models
-  listModels: () => callTool('list_models'),
-  setDefaultModel: (model_tag: string) => callTool('set_default_model', { model_tag }),
+  listModels: () => callTool("list_models"),
+  setDefaultModel: (model_tag: string) =>
+    callTool("set_default_model", { model_tag }),
   modelStatus: (model_tag?: string) =>
-    callTool('model_status', model_tag ? { model_tag } : {}),
+    callTool("model_status", model_tag ? { model_tag } : {}),
 
   // Sessions
   startSession: (
     working_dir: string,
     model_tag?: string,
     enable_kairos = false,
-    safety_mode = 'none',
+    safety_mode = "none",
     custom_guardrails?: string,
-  ) => callTool('start_session', { 
-    working_dir, 
-    ...(model_tag ? { model_tag } : {}), 
-    enable_kairos,
-    safety_mode,
-    ...(custom_guardrails ? { custom_guardrails } : {})
-  }),
+  ) =>
+    callTool("start_session", {
+      working_dir,
+      ...(model_tag ? { model_tag } : {}),
+      enable_kairos,
+      safety_mode,
+      ...(custom_guardrails ? { custom_guardrails } : {}),
+    }),
   sendPrompt: (session_id: string, prompt: string) =>
-    callTool('send_prompt', { session_id, prompt }),
+    callTool("send_prompt", { session_id, prompt }),
   sendMultimodal: (session_id: string, text: string, image_paths: string[]) =>
-    callTool('send_multimodal', { session_id, text, image_paths }),
+    callTool("send_multimodal", { session_id, text, image_paths }),
   sessionStatus: (session_id: string) =>
-    callTool('session_status', { session_id }),
-  listSessions: () => callTool('list_sessions'),
-  stopSession: (session_id: string) =>
-    callTool('stop_session', { session_id }),
+    callTool("session_status", { session_id }),
+  listSessions: () => callTool("list_sessions"),
+  stopSession: (session_id: string) => callTool("stop_session", { session_id }),
 
   // KAIROS
   kairosEnable: (session_id: string, idle_threshold_seconds = 60) =>
-    callTool('kairos_enable', { session_id, idle_threshold_seconds }),
+    callTool("kairos_enable", { session_id, idle_threshold_seconds }),
   kairosDisable: (session_id: string) =>
-    callTool('kairos_disable', { session_id }),
+    callTool("kairos_disable", { session_id }),
   kairosLog: (session_id: string, lines = 50) =>
-    callTool('kairos_log', { session_id, lines }),
+    callTool("kairos_log", { session_id, lines }),
 
   // ULTRAPLAN
   ultraplan: (session_id: string, goal: string) =>
-    callTool('ultraplan', { session_id, goal }),
+    callTool("ultraplan", { session_id, goal }),
 
   // System Logs
   getSystemLogs: () => fetch(`${BASE}/api/logs/system`).then((r) => r.json()),
-}
+};

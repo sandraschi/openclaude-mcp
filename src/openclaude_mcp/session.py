@@ -34,6 +34,7 @@ v4 (2026-05-02): Usage analytics + multimodal. Tracks total_prompts, output char
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -54,6 +55,10 @@ logger = get_logger("session")
 # Timeout waiting for turn_complete before giving up and returning partial output.
 # gemma4:26b cold-loads from disk in ~77s on Goliath — keep headroom above that.
 SEND_TIMEOUT_SECONDS = 180
+OUTPUT_BUFFER_MAX = 200
+OUTPUT_BUFFER_TAIL = 50
+MESSAGE_HISTORY_MAX = 100
+LOG_PREVIEW_MAX = 100
 
 # Default paths for zero-friction startup
 OPENCLAUDE_DIR = Path(os.environ.get("OPENCLAUDE_DIR", r"D:\Dev\repos\external\openclaude"))
@@ -88,6 +93,45 @@ class OpenClaudeSession:
     # Usage analytics
     total_prompts: int = field(default=0, init=False, repr=False)
     total_output_chars: int = field(default=0, init=False, repr=False)
+    _background_tasks: set[asyncio.Task[None]] = field(default_factory=set, init=False, repr=False)
+
+    def _spawn_task(self, coro: asyncio.coroutines.Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    def _append_output_line(self, line: str) -> None:
+        self._output_buffer.append(line)
+        if len(self._output_buffer) > OUTPUT_BUFFER_MAX:
+            self._output_buffer = self._output_buffer[-OUTPUT_BUFFER_MAX:]
+        self._last_output = "\n".join(self._output_buffer[-OUTPUT_BUFFER_TAIL:])
+
+    def _trim_message_history(self) -> None:
+        if len(self._messages) > MESSAGE_HISTORY_MAX:
+            self._messages = self._messages[-MESSAGE_HISTORY_MAX:]
+
+    def _collect_assistant_text(self, message: dict[str, Any]) -> None:
+        content = message.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    self._turn_response_lines.append(block.get("text", ""))
+        elif isinstance(content, str):
+            self._turn_response_lines.append(content)
+
+    def _handle_stdout_message(self, msg: dict[str, Any]) -> None:
+        if not self._turn_in_flight:
+            return
+        msg_type = msg.get("type", "")
+        if msg_type == "assistant":
+            self._collect_assistant_text(msg.get("message", {}))
+        elif msg_type == "system" and msg.get("subtype") == "turn_complete":
+            self._turn_event.set()
+        elif msg_type == "result":
+            result_text = msg.get("result", "")
+            if result_text and result_text not in self._turn_response_lines:
+                self._turn_response_lines.append(result_text)
+            self._turn_event.set()
 
     # -------------------------------------------------------------------------
     # Provisioning helpers
@@ -118,7 +162,8 @@ class OpenClaudeSession:
             install_script_path.write_bytes(response.content)
 
         proc = await asyncio.create_subprocess_exec(
-            "bash", str(install_script_path),
+            "bash",
+            str(install_script_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -208,7 +253,7 @@ class OpenClaudeSession:
 
         self._status = "provisioning"
         logger.info(f"[{self.session_id}] Starting session (working_dir: {self.working_dir})")
-        asyncio.create_task(self._startup_sequence())
+        self._spawn_task(self._startup_sequence())
 
     async def _startup_sequence(self) -> None:
         """Internal sequence: Provision -> Launch."""
@@ -230,11 +275,11 @@ class OpenClaudeSession:
             }
             project_prefixes = ("OPENCLAUDE_", "ANTHROPIC_", "OLLAMA_")
 
-            full_env = {}
-            for key, value in os.environ.items():
-                if key in whitelist or key.startswith(project_prefixes):
-                    full_env[key] = value
-
+            full_env = {
+                key: value
+                for key, value in os.environ.items()
+                if key in whitelist or key.startswith(project_prefixes)
+            }
             full_env.update(self.env)
             self.working_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,7 +299,7 @@ class OpenClaudeSession:
             ]
             if self.mcp_config_path:
                 cmd_full.extend(["--mcp-config", self.mcp_config_path])
-            
+
             logger.info(f"[{self.session_id}] Executing: {' '.join(cmd_full)}")
             self._last_output = f"Starting session: {' '.join(cmd_full)}"
 
@@ -268,8 +313,8 @@ class OpenClaudeSession:
             )
             self._status = "running"
             logger.info(f"[{self.session_id}] Process started (pid: {self._process.pid})")
-            asyncio.create_task(self._read_stdout())
-            asyncio.create_task(self._drain_stderr())
+            self._spawn_task(self._read_stdout())
+            self._spawn_task(self._drain_stderr())
 
         except Exception as e:
             self._status = "error"
@@ -290,10 +335,7 @@ class OpenClaudeSession:
                     break
                 decoded = line.decode(errors="replace").rstrip()
                 if decoded:
-                    self._output_buffer.append(f"[stderr] {decoded}")
-                    if len(self._output_buffer) > 200:
-                        self._output_buffer = self._output_buffer[-200:]
-                    self._last_output = "\n".join(self._output_buffer[-50:])
+                    self._append_output_line(f"[stderr] {decoded}")
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -313,10 +355,7 @@ class OpenClaudeSession:
                     continue
 
                 # Always log to rolling buffer for debugging / KAIROS observations
-                self._output_buffer.append(line)
-                if len(self._output_buffer) > 200:
-                    self._output_buffer = self._output_buffer[-200:]
-                self._last_output = "\n".join(self._output_buffer[-50:])
+                self._append_output_line(line)
 
                 # Parse NDJSON message
                 try:
@@ -325,35 +364,7 @@ class OpenClaudeSession:
                     # Non-JSON line (e.g. startup banner) — log and continue
                     continue
 
-                msg_type = msg.get("type", "")
-
-                # Collect assistant text into the current turn's response
-                if msg_type == "assistant":
-                    if self._turn_in_flight:
-                        # Extract text content from the assistant message
-                        message = msg.get("message", {})
-                        content = message.get("content", [])
-                        if isinstance(content, list):
-                            for block in content:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    self._turn_response_lines.append(block.get("text", ""))
-                        elif isinstance(content, str):
-                            self._turn_response_lines.append(content)
-
-                # Turn complete signals
-                elif msg_type == "system":
-                    subtype = msg.get("subtype", "")
-                    if subtype == "turn_complete" and self._turn_in_flight:
-                        self._turn_event.set()
-
-                elif msg_type == "result":
-                    # print-mode final result — also signals end of turn
-                    if self._turn_in_flight:
-                        # result may carry the full response text
-                        result_text = msg.get("result", "")
-                        if result_text and result_text not in self._turn_response_lines:
-                            self._turn_response_lines.append(result_text)
-                        self._turn_event.set()
+                self._handle_stdout_message(msg)
 
         except asyncio.CancelledError:
             pass
@@ -385,8 +396,13 @@ class OpenClaudeSession:
                 if not path.exists():
                     return {"error": f"Image not found: {path_str}"}
                 ext = path.suffix.lower().lstrip(".")
-                media_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}.get(ext, "image/png")
-                import base64
+                media_type = {
+                    "png": "image/png",
+                    "jpg": "image/jpeg",
+                    "jpeg": "image/jpeg",
+                    "webp": "image/webp",
+                    "gif": "image/gif",
+                }.get(ext, "image/png")
                 data = base64.b64encode(path.read_bytes()).decode("ascii")
                 content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}})
         return await self._send_message({"role": "user", "content": content})
@@ -419,8 +435,15 @@ class OpenClaudeSession:
         try:
             # Extract text preview for logging
             content = message.get("content", "")
-            preview = content[:100] if isinstance(content, str) else f"[multimodal {len(content)} blocks]"
-            logger.info(f"[{self.session_id}] Send: {preview}{'...' if isinstance(content, str) and len(content) > 100 else ''}")
+            preview = (
+                content[:LOG_PREVIEW_MAX]
+                if isinstance(content, str)
+                else f"[multimodal {len(content)} blocks]"
+            )
+            logger.info(
+                f"[{self.session_id}] Send: {preview}"
+                f"{'...' if isinstance(content, str) and len(content) > LOG_PREVIEW_MAX else ''}"
+            )
             self._process.stdin.write(payload.encode("utf-8"))
             await self._process.stdin.drain()
 
@@ -430,12 +453,10 @@ class OpenClaudeSession:
             # Store user message in history
             history_text = content if isinstance(content, str) else f"[multimodal {len(content)} blocks]"
             self._messages.append({"role": "user", "content": history_text})
-            if len(self._messages) > 100:
-                self._messages = self._messages[-100:]
+            self._trim_message_history()
 
             # Wait for turn_complete or timeout
-            import time as _time
-            turn_start = _time.time()
+            turn_start = time.time()
             try:
                 await asyncio.wait_for(self._turn_event.wait(), timeout=SEND_TIMEOUT_SECONDS)
                 response_text = "\n".join(self._turn_response_lines).strip()
@@ -445,16 +466,17 @@ class OpenClaudeSession:
                 response_text = "\n".join(self._turn_response_lines).strip()
                 if not response_text:
                     response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s — model may still be processing)"
-            turn_duration = _time.time() - turn_start
+            turn_duration = time.time() - turn_start
 
             # Track output chars
             if response_text:
                 self.total_output_chars += len(response_text)
                 self._messages.append({"role": "assistant", "content": response_text})
-                if len(self._messages) > 100:
-                    self._messages = self._messages[-100:]
+                self._trim_message_history()
 
-            logger.info(f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} blocks, {turn_duration:.1f}s)")
+            logger.info(
+                f"[{self.session_id}] Turn complete ({len(self._turn_response_lines)} blocks, {turn_duration:.1f}s)"
+            )
             self._last_output = "\n".join(self._output_buffer[-50:])
             return {
                 "session_id": self.session_id,
@@ -488,7 +510,7 @@ class OpenClaudeSession:
                     self._process.kill()
         if self.mcp_config_path:
             with contextlib.suppress(Exception):
-                os.remove(self.mcp_config_path)
+                Path(self.mcp_config_path).unlink(missing_ok=True)
         self._status = "stopped"
 
     def snapshot(self) -> dict[str, Any]:
@@ -509,7 +531,10 @@ class OpenClaudeSession:
             "usage": {
                 "total_prompts": self.total_prompts,
                 "total_output_chars": self.total_output_chars,
-                "estimated_input_tokens": sum(len(m.get("content", "")) for m in self._messages if m.get("role") == "user") // 4,
+                "estimated_input_tokens": sum(
+                    len(m.get("content", "")) for m in self._messages if m.get("role") == "user"
+                )
+                // 4,
             },
         }
 

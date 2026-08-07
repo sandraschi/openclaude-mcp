@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Inter', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', monospace;
+  font-family: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", monospace;
 }
 
 body {
@@ -13,6 +13,8 @@ body {
   margin: 0;
 }
 
-code, pre, .mono {
+code,
+pre,
+.mono {
   font-family: var(--mono);
 }

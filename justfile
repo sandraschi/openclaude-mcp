@@ -1,4 +1,4 @@
-set windows-shell := ["pwsh.exe", "-NoLogo", "-Command"]
+set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 import 'scripts/just/fleet.just'
 
 UV     := "C:/Users/sandr/.local/bin/uv.exe"
@@ -6,13 +6,13 @@ NAME   := "openclaude-mcp"
 VER    := "0.1.0"
 PORT   := "10932"
 
-# ── Dashboard ─────────────────────────────────────────────────────────────────
+# --- Dashboard ---
 
 # Open the interactive recipe dashboard in the browser
 default:
     @just --list
 
-# ── Operation ─────────────────────────────────────────────────────────────────
+# --- Operation ---
 
 # One-time first-time setup (npm + uv sync)
 setup:
@@ -48,7 +48,7 @@ restart: stop
 logs:
     Get-Content backend_startup.log -Wait -Tail 40
 
-# ── Quality ───────────────────────────────────────────────────────────────────
+# --- Quality ---
 
 # Ruff lint check
 lint:
@@ -64,10 +64,10 @@ fix:
 typecheck:
     {{UV}} run pyright openclaude/ server.py || true
 
-# Lint + typecheck + unit tests — run before every commit
+# --- Lint  typecheck  unit tests  run before every commit ---
 check: lint typecheck test-unit
 
-# ── Security ──────────────────────────────────────────────────────────────────
+# --- Security ---
 
 # Bandit + Semgrep static security scan
 check-sec:
@@ -79,7 +79,7 @@ audit-deps:
     {{UV}} run safety check
     cd webapp && npm audit
 
-# ── Testing ───────────────────────────────────────────────────────────────────
+# --- Testing ---
 
 # Run all tests
 test:
@@ -108,7 +108,7 @@ test-e2e:
 test-cov:
     {{UV}} run pytest tests/ -v --tb=short --cov=openclaude --cov=server --cov-report=term-missing
 
-# ── Models ────────────────────────────────────────────────────────────────────
+# --- Models ---
 
 # List models currently available in Ollama
 list-models:
@@ -123,7 +123,7 @@ pull-models:
 pull-max:
     ollama pull gemma4:31b
 
-# ── Webapp ────────────────────────────────────────────────────────────────────
+# --- Webapp ---
 
 # Install webapp npm deps
 webapp-install:
@@ -133,26 +133,22 @@ webapp-install:
 webapp-build:
     cd webapp && npm run build
 
-# ── Packaging ─────────────────────────────────────────────────────────────────
+# --- Packaging ---
 
-# Full pipeline: validate → pack
+# --- Full pipeline validate  pack ---
 pack: mcpb-validate mcpb-pack
-
-# Build MCPB bundle
-mcpb-pack:
-    mcpb pack . dist/{{NAME}}-v{{VER}}.mcpb
 
 # Validate manifest
 mcpb-validate:
     mcpb validate manifest.json
 
-# ── Housekeeping ──────────────────────────────────────────────────────────────
+# --- Housekeeping ---
 
 # Remove build artefacts and cache
 clean:
     Remove-Item -Recurse -Force dist,__pycache__,'.pytest_cache','.ruff_cache' -ErrorAction SilentlyContinue
 
-# Remove everything including venv and node_modules — fresh start
+# --- Remove everything including venv and node_modules  fresh start ---
 reset: clean
     Remove-Item -Recurse -Force .venv,webapp/node_modules -ErrorAction SilentlyContinue
 
@@ -161,3 +157,9 @@ kill-port:
     $conn = Get-NetTCPConnection -LocalPort {{PORT}} -ErrorAction SilentlyContinue; \
     if ($conn) { Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'Port {{PORT}} cleared.' -ForegroundColor Green } \
     else { Write-Host 'Port {{PORT}} already free.' -ForegroundColor Yellow }
+
+# Bootstrap: install dev deps + pre-commit hook
+bootstrap:
+    uv sync --group dev
+    uv run pre-commit install
+    Write-Host "Pre-commit hooks installed." -ForegroundColor Green

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import time
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,6 @@ async def cleanup_stale() -> None:
         pid = s.get("pid")
         if pid:
             try:
-                import signal
                 os.kill(pid, signal.Signals.SIG_DFL)
                 alive.append(s)
             except (OSError, ProcessLookupError):

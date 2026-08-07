@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,12 @@ import httpx
 
 OLLAMA_BASE = "http://localhost:11434"
 
+
 def _defaults_file() -> Path:
-    return Path(os.environ.get("OPENCLAUDE_CONFIG_DIR", str(Path.home() / ".config" / "openclaude"))) / "default_model.json"
+    return (
+        Path(os.environ.get("OPENCLAUDE_CONFIG_DIR", str(Path.home() / ".config" / "openclaude")))
+        / "default_model.json"
+    )
 
 
 class ModelRouter:
@@ -121,15 +126,14 @@ class ModelRouter:
                 encoding="utf-8",
             )
         except OSError as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Could not persist default model: {e}")
+            logging.getLogger(__name__).warning("Could not persist default model: %s", e)
 
     async def list_models(self) -> dict[str, Any]:
         available: list[str] = []
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.get(f"{OLLAMA_BASE}/api/tags")
-                if r.status_code == 200:
+                if r.status_code == httpx.codes.OK:
                     available = [m["name"] for m in r.json().get("models", [])]
         except Exception:
             pass

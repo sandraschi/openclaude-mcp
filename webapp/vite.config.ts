@@ -1,17 +1,17 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: ['goliath'],
+    allowedHosts: ["goliath"],
     port: 10933,
     strictPort: true,
     host: true,
     proxy: {
-      '/tools': 'http://localhost:10932',
-      '/api': 'http://localhost:10932',
-      '/sse': 'http://localhost:10932',
+      "/tools": "http://localhost:10932",
+      "/api": "http://localhost:10932",
+      "/sse": "http://localhost:10932",
     },
   },
-})
+});

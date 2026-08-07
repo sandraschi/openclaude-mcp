@@ -11,6 +11,7 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     logger.addHandler(handler)
 
+
 def get_logger(name: str) -> logging.Logger:
     """Get a child logger for the given module name."""
     return logger.getChild(name)

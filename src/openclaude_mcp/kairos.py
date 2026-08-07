@@ -31,7 +31,10 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
+
+if TYPE_CHECKING:
+    from openclaude_mcp.session import OpenClaudeSession
 
 import httpx
 
@@ -45,14 +48,15 @@ except ImportError:
 
     # Graceful no-op fallback — install filelock: uv sync
     class FileLock:  # type: ignore[no-redef]
-        def __init__(self, path, timeout=10) -> None:
+        def __init__(self, path: str | Path, timeout: int = 10) -> None:
             self._path = path
+            _ = timeout
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, *a):
-            pass
+        def __exit__(self, *_args: object) -> None:
+            return None
 
     class FileLockTimeout(Exception):
         pass  # type: ignore[no-redef]
@@ -169,7 +173,7 @@ class KairosController:
         if self._log_handler and hasattr(self._log_handler, "lines"):
             tag = f"[{session_id}]"
             all_lines = self._log_handler.lines
-            centralized = [l for l in all_lines if tag in l]
+            centralized = [line for line in all_lines if tag in line]
         internal = self._logs.get(session_id, [])
         combined = centralized + internal
         return {
@@ -204,7 +208,9 @@ class KairosController:
             if idle_seconds < idle_threshold:
                 continue
 
-            logger.info(f"[{session_id}] Idle for {idle_seconds}s. Starting autoDream consolidation #{self._consolidation_count[session_id] + 1}...")
+            logger.info(
+                f"[{session_id}] Idle for {idle_seconds}s. Starting autoDream consolidation #{self._consolidation_count[session_id] + 1}..."
+            )
             try:
                 result = await self._consolidate(session, log)
                 if result.get("skipped"):
@@ -214,12 +220,14 @@ class KairosController:
                 else:
                     self._consolidation_count[session_id] += 1
                     await self._persist()
-                    logger.info(f"[{session_id}] Consolidation #{self._consolidation_count[session_id]} complete. MEMORY.md updated ({result.get('memory_length', '?')} chars).")
+                    logger.info(
+                        f"[{session_id}] Consolidation #{self._consolidation_count[session_id]} complete. MEMORY.md updated ({result.get('memory_length', '?')} chars)."
+                    )
                 self._last_activity[session_id] = time.time()
-            except Exception as e:
-                logger.error(f"[{session_id}] Consolidation error: {e}")
+            except Exception:
+                logger.exception("[%s] Consolidation error", session_id)
 
-    async def _consolidate(self, session, log: list) -> dict[str, Any]:
+    async def _consolidate(self, session: OpenClaudeSession, _log: list) -> dict[str, Any]:
         """
         Run one autoDream consolidation cycle.
 

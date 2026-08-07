@@ -57,7 +57,7 @@ def mock_ollama_ok():
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_client.get.side_effect = lambda url, **kw: tags_response if "tags" in url else ps_response
+        mock_client.get.side_effect = lambda url, **_kw: tags_response if "tags" in url else ps_response
         yield mock_client
 
 

@@ -1,4 +1,4 @@
-# run-tests.ps1 — run unit + smoke tests, write results to temp
+# run-tests.ps1 - run unit + smoke tests, write results to temp
 $ErrorActionPreference = "Continue"
 Set-Location "D:\Dev\repos\openclaude-mcp"
 $py = "D:\Dev\repos\openclaude-mcp\.venv\Scripts\python.exe"

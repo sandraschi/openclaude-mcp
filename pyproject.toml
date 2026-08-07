@@ -50,19 +50,24 @@ target-version = "py312"
 select = [
     "E", "F", "I", "UP", "B", "S", "A", "ANN", "COM", "C4", "DTZ", "PIE", "T20", "PYI", "Q", "RSE", "RET", "SLF", "SIM", "TID", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "PERF", "FURB", "LOG", "RUF"
 ]
-ignore = ["ANN101", # Missing type annotation for self
-    "ANN102", # Missing type annotation for cls
-    "COM812", # Trailing comma missing (handled by formatter)
-    "ISC001", # Single line implicit string concatenation (handled by formatter)
-    "PLR0913", # Too many arguments
-    "S101",   # Use of assert (standard for pytest)
-    "TRY003", # Avoid specifying long messages in exceptions, "S106", "S110", "S112", "ANN101", # Missing type annotation for self
-    "ANN102", # Missing type annotation for cls
-    "COM812", # Trailing comma missing (handled by formatter)
-    "ISC001", # Single line implicit string concatenation (handled by formatter)
-    "PLR0913", # Too many arguments
-    "S101",   # Use of assert (standard for pytest)
-    "TRY003", # Avoid specifying long messages in exceptions, "S106", "S110", "S112", "RUF012", "S603", "S607", "S324", "E402", "E501"]
+ignore = [
+    "ANN101",
+    "ANN102",
+    "COM812",
+    "ISC001",
+    "PLR0913",
+    "S101",
+    "TRY003",
+    "S106",
+    "S110",
+    "S112",
+    "RUF012",
+    "S603",
+    "S607",
+    "S324",
+    "E402",
+    "E501",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "ANN", "PLR", "TRY", "S105", "S106", "SLF001", "ARG002", "PLC0415"]

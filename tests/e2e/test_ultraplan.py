@@ -55,12 +55,11 @@ class TestUltraplan:
     @respx.mock
     def test_ultraplan_happy_path_with_mock_anthropic(self, client):
         """Full ULTRAPLAN flow with a mocked Anthropic API response."""
-        from openclaude.session import OpenClaudeSession
-
-        from server import sessions
-        from server import model_router
         import tempfile
         from pathlib import Path
+
+        from openclaude.session import OpenClaudeSession
+        from server import sessions
 
         tmp_dir = Path(tempfile.mkdtemp())
         sess = OpenClaudeSession(
@@ -108,13 +107,13 @@ class TestUltraplan:
     @respx.mock
     def test_ultraplan_handles_anthropic_timeout(self, client):
         """ULTRAPLAN should return a clean error on Anthropic API timeout."""
-        from openclaude.session import OpenClaudeSession
-        from server import sessions
-
+        import asyncio
         import tempfile
         from pathlib import Path
-        import asyncio
         from unittest.mock import MagicMock
+
+        from openclaude.session import OpenClaudeSession
+        from server import sessions
 
         tmp_dir = Path(tempfile.mkdtemp())
         sess = OpenClaudeSession(
@@ -147,13 +146,13 @@ class TestUltraplan:
     @respx.mock
     def test_ultraplan_handles_anthropic_connect_error(self, client):
         """ULTRAPLAN should return a clean error on connection failure."""
-        from openclaude.session import OpenClaudeSession
-        from server import sessions
-
+        import asyncio
         import tempfile
         from pathlib import Path
-        import asyncio
         from unittest.mock import MagicMock
+
+        from openclaude.session import OpenClaudeSession
+        from server import sessions
 
         tmp_dir = Path(tempfile.mkdtemp())
         sess = OpenClaudeSession(

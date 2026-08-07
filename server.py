@@ -3,7 +3,7 @@ openclaude-mcp  —  FastMCP 3.2 server + Starlette REST bridge
 
 FastMCP 3.2 features used:
   - lifespan context manager (startup health check, graceful shutdown)
-  - mcp.http_app(transport="sse")  — ASGI SSE transport mount
+  - mcp.http_app(path="/", transport="sse")  — ASGI SSE transport mount
   - @mcp.tool(app=True)            — Prefab fleet dashboard (requires fastmcp[apps])
   - Context | None                 — tools callable from both MCP and REST
 
@@ -730,7 +730,7 @@ async def _capabilities_handler(_request: Request) -> JSONResponse:
 
 # ---------------------------------------------------------------------------
 # Composite Starlette app
-# mcp.http_app(transport="sse") — FastMCP 3.2 SSE ASGI mount
+# mcp.http_app(path="/", transport="sse") — FastMCP 3.2 SSE ASGI mount
 # ---------------------------------------------------------------------------
 
 

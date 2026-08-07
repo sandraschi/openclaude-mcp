@@ -1,4 +1,4 @@
-# setup.ps1  —  one-time setup for openclaude-mcp
+# setup.ps1  -  one-time setup for openclaude-mcp
 # Run this ONCE before start.ps1
 
 $RepoDir = $PSScriptRoot
