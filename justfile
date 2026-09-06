@@ -32,7 +32,7 @@ stdio:
 
 # Run the React webapp on port 10933
 webapp:
-    cd webapp && npm run dev -- --port 10933
+    cd webapp; npm run dev -- --port 10933
 
 # Kill the backend process on port 10932
 stop:
@@ -77,7 +77,7 @@ check-sec:
 # Audit Python + Node deps for CVEs
 audit-deps:
     {{UV}} run safety check
-    cd webapp && npm audit
+    cd webapp; npm audit
 
 # --- Testing ---
 
@@ -127,11 +127,11 @@ pull-max:
 
 # Install webapp npm deps
 webapp-install:
-    cd webapp && npm install
+    cd webapp; npm install
 
 # Build webapp for production
 webapp-build:
-    cd webapp && npm run build
+    cd webapp; npm run build
 
 # --- Packaging ---
 
