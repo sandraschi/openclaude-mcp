@@ -16,11 +16,11 @@ default:
 
 # One-time first-time setup (npm + uv sync)
 setup:
-    pwsh -ExecutionPolicy Bypass -File setup.ps1
+    powershell.exe -ExecutionPolicy Bypass -File setup.ps1
 
 # Launch Control Plane (starts server + webapp via start.ps1)
 start:
-    pwsh -ExecutionPolicy Bypass -File start.ps1
+    powershell.exe -ExecutionPolicy Bypass -File start.ps1
 
 # Run FastMCP backend only on fleet port 10932
 serve:
