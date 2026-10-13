@@ -93,3 +93,10 @@ markers = [
     "e2e: requires Ollama + openclaude on PATH",
     "requires_ollama: requires Ollama running with a model pulled",
 ]
+
+[dependency-groups]
+dev = [
+    "pillow>=12.3.0",
+    "pytesseract>=0.3.13",
+    "pywinauto>=0.6.9",
+]
