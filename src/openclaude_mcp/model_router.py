@@ -1,4 +1,4 @@
-"""Model routing — Ollama health checks and model metadata."""
+"""Model routing - Ollama health checks and model metadata."""
 
 from __future__ import annotations
 

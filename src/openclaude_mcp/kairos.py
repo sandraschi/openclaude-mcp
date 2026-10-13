@@ -5,19 +5,19 @@ KAIROS (Ancient Greek: "the right moment") is the autonomous background daemon
 from the Claude Code leak (src/services/autoDream/).
 
 When a session is idle, it:
-  1. Orient     — reads MEMORY.md from the working directory (under filelock)
-  2. Gather     — collects recent session output as observations
-  3. Consolidate — calls the local Ollama model to merge, deduplicate, harden
-  4. Prune      — rewrites MEMORY.md (under filelock)
+  1. Orient     - reads MEMORY.md from the working directory (under filelock)
+  2. Gather     - collects recent session output as observations
+  3. Consolidate - calls the local Ollama model to merge, deduplicate, harden
+  4. Prune      - rewrites MEMORY.md (under filelock)
 
 --- Bug fixes (ref: TODO.md, 2026-04-05) ---
 
-Fix 2a — filelock on MEMORY.md:
+Fix 2a - filelock on MEMORY.md:
   Both KAIROS and the native openclaude process may write MEMORY.md. Without a
   lock, concurrent writes corrupt the file. We use filelock.FileLock on a
   sidecar file (MEMORY.md.lock) so reads and writes are always serialised.
 
-Fix 2b — abort consolidation if session becomes active mid-cycle:
+Fix 2b - abort consolidation if session becomes active mid-cycle:
   If a prompt arrives during a long consolidation LLM call, we were blocking
   Ollama for the user. Now we check last_activity both before AND after the
   Ollama call and abort if the session went active, leaving the existing
@@ -46,7 +46,7 @@ try:
 except ImportError:
     _FILELOCK_AVAILABLE = False
 
-    # Graceful no-op fallback — install filelock: uv sync
+    # Graceful no-op fallback - install filelock: uv sync
     class FileLock:  # type: ignore[no-redef]
         def __init__(self, path: str | Path, timeout: int = 10) -> None:
             self._path = path
@@ -84,7 +84,7 @@ Your task:
 - Remove any contradictions (keep the most recent / most specific fact)
 - Convert vague observations ("might be", "possibly") into concrete facts where evidence supports it
 - Prune redundant or superseded entries
-- Output ONLY the updated MEMORY.md content — no preamble, no explanation
+- Output ONLY the updated MEMORY.md content - no preamble, no explanation
 
 Format: markdown. Use ## sections for different concern areas (Architecture, Bugs, Decisions, TODOs).
 Keep it concise. Every line should earn its place."""
@@ -216,7 +216,7 @@ class KairosController:
                 if result.get("skipped"):
                     pass
                 elif result.get("aborted"):
-                    logger.info(f"[{session_id}] Consolidation aborted — session became active.")
+                    logger.info(f"[{session_id}] Consolidation aborted - session became active.")
                 else:
                     self._consolidation_count[session_id] += 1
                     await self._persist()
@@ -232,16 +232,16 @@ class KairosController:
         Run one autoDream consolidation cycle.
 
         Returns one of:
-          {"skipped": True}   — no observations to consolidate
-          {"aborted": True}   — session became active during Ollama call
-          {"memory_length": int, "model": str} — success
+          {"skipped": True}   - no observations to consolidate
+          {"aborted": True}   - session became active during Ollama call
+          {"memory_length": int, "model": str} - success
         """
         working_dir = Path(session.working_dir)
         model = session.model
         memory_path = working_dir / "MEMORY.md"
         lock_path = working_dir / "MEMORY.md.lock"
 
-        # 1. Orient — read current MEMORY.md under lock
+        # 1. Orient - read current MEMORY.md under lock
         try:
             with FileLock(str(lock_path), timeout=LOCK_TIMEOUT):
                 if memory_path.exists():
@@ -250,17 +250,17 @@ class KairosController:
                     memory_content = "# Project Memory\n\n(no entries yet)\n"
                     memory_path.write_text(memory_content, encoding="utf-8")
         except FileLockTimeout:
-            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock — skipping.")
+            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock - skipping.")
             return {"skipped": True}
 
-        # 2. Gather — collect recent session output
+        # 2. Gather - collect recent session output
         snap = session.snapshot()
         observations = snap.get("last_output_preview", "")
         if not observations:
             logger.info(f"[{session.session_id}] No new observations to consolidate. Skipping.")
             return {"skipped": True}
 
-        # 3. Consolidate — Ollama call (potentially long)
+        # 3. Consolidate - Ollama call (potentially long)
         # Record activity timestamp before call so we can detect if user resumed
         activity_before = self._last_activity.get(session.session_id, 0.0)
 
@@ -285,20 +285,20 @@ class KairosController:
             response.raise_for_status()
             data = response.json()
 
-        # Fix 2b — abort if session became active during the Ollama call
+        # Fix 2b - abort if session became active during the Ollama call
         activity_after = self._last_activity.get(session.session_id, 0.0)
         if activity_after > activity_before:
-            # User sent a prompt while we were consolidating — don't overwrite
+            # User sent a prompt while we were consolidating - don't overwrite
             return {"aborted": True}
 
         updated_memory = data["choices"][0]["message"]["content"].strip()
 
-        # 4. Prune — write updated MEMORY.md under lock
+        # 4. Prune - write updated MEMORY.md under lock
         try:
             with FileLock(str(lock_path), timeout=LOCK_TIMEOUT):
                 memory_path.write_text(updated_memory, encoding="utf-8")
         except FileLockTimeout:
-            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock for write — skipping.")
+            logger.warning(f"[{session.session_id}] Could not acquire MEMORY.md lock for write - skipping.")
             return {"skipped": True}
 
         return {"memory_length": len(updated_memory), "model": model}

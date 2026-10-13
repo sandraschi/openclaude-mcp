@@ -1,5 +1,5 @@
 """
-Session lifecycle — start/stop/snapshot OpenClaude subprocesses.
+Session lifecycle - start/stop/snapshot OpenClaude subprocesses.
 
 OpenClaude is a Node.js CLI that implements the Claude Code SDK wire protocol:
 - stdin:  NDJSON lines, each a StdinMessage (type: 'user' | 'control_response' | ...)
@@ -8,22 +8,22 @@ OpenClaude is a Node.js CLI that implements the Claude Code SDK wire protocol:
 Key message types we care about:
   stdin  → {"type":"user","session_id":"","message":{"role":"user","content":"..."},"parent_tool_use_id":null}
   stdin  → {"type":"user","session_id":"","message":{"role":"user","content":[{"type":"text","text":"..."},{"type":"image","source":{...}}]},"parent_tool_use_id":null}
-  stdout ← {"type":"assistant","message":{...}}        — model response chunks
-  stdout ← {"type":"system","subtype":"turn_complete"} — turn is done
-  stdout ← {"type":"result","subtype":"success",...}   — print-mode final result
+  stdout ← {"type":"assistant","message":{...}}        - model response chunks
+  stdout ← {"type":"system","subtype":"turn_complete"} - turn is done
+  stdout ← {"type":"result","subtype":"success",...}   - print-mode final result
 
 The subprocess is launched with --print so it runs in SDK/non-interactive mode
-and exits after each turn (or stays alive if we keep piping — print mode stays
+and exits after each turn (or stays alive if we keep piping - print mode stays
 alive as long as stdin stays open in piped mode).
 
 --- History ---
 
-v1 (2026-04-05): EOT sentinel approach — BROKEN. openclaude calls JSON.parse()
+v1 (2026-04-05): EOT sentinel approach - BROKEN. openclaude calls JSON.parse()
   on every stdin line. Sending a raw "__OC_EOT__" string causes JSON.parse()
   to throw and the process calls process.exit(1). This is why no responses
   were ever received.
 
-v2 (2026-04-06): NDJSON protocol — correct. User messages sent as JSON objects,
+v2 (2026-04-06): NDJSON protocol - correct. User messages sent as JSON objects,
   turn completion detected by watching for 'system'/'turn_complete' or
   'result'/'success' stdout messages.
 
@@ -53,7 +53,7 @@ from openclaude.logging_util import get_logger
 logger = get_logger("session")
 
 # Timeout waiting for turn_complete before giving up and returning partial output.
-# gemma4:26b cold-loads from disk in ~77s on Goliath — keep headroom above that.
+# gemma4:26b cold-loads from disk in ~77s on Goliath - keep headroom above that.
 SEND_TIMEOUT_SECONDS = 180
 OUTPUT_BUFFER_MAX = 200
 OUTPUT_BUFFER_TAIL = 50
@@ -74,7 +74,7 @@ class OpenClaudeSession:
     kairos_enabled: bool = False
     mcp_config_path: str | None = None
 
-    # Optional activity callback — set by server after session creation
+    # Optional activity callback - set by server after session creation
     on_activity: Callable | None = field(default=None, init=False, repr=False)
 
     _process: asyncio.subprocess.Process | None = field(default=None, init=False, repr=False)
@@ -138,7 +138,7 @@ class OpenClaudeSession:
     # -------------------------------------------------------------------------
 
     async def _install_bun(self) -> None:
-        """Detect and install Bun if missing — downloads the installer script directly."""
+        """Detect and install Bun if missing - downloads the installer script directly."""
         if shutil.which("bun"):
             return
 
@@ -276,9 +276,7 @@ class OpenClaudeSession:
             project_prefixes = ("OPENCLAUDE_", "ANTHROPIC_", "OLLAMA_")
 
             full_env = {
-                key: value
-                for key, value in os.environ.items()
-                if key in whitelist or key.startswith(project_prefixes)
+                key: value for key, value in os.environ.items() if key in whitelist or key.startswith(project_prefixes)
             }
             full_env.update(self.env)
             self.working_dir.mkdir(parents=True, exist_ok=True)
@@ -361,7 +359,7 @@ class OpenClaudeSession:
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    # Non-JSON line (e.g. startup banner) — log and continue
+                    # Non-JSON line (e.g. startup banner) - log and continue
                     continue
 
                 self._handle_stdout_message(msg)
@@ -408,7 +406,7 @@ class OpenClaudeSession:
         return await self._send_message({"role": "user", "content": content})
 
     async def _send_message(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Core send implementation — works for text-only and multimodal messages."""
+        """Core send implementation - works for text-only and multimodal messages."""
         if not self._process or self._status != "running":
             return {
                 "error": f"Session {self.session_id} not running (status: {self._status})",
@@ -435,11 +433,7 @@ class OpenClaudeSession:
         try:
             # Extract text preview for logging
             content = message.get("content", "")
-            preview = (
-                content[:LOG_PREVIEW_MAX]
-                if isinstance(content, str)
-                else f"[multimodal {len(content)} blocks]"
-            )
+            preview = content[:LOG_PREVIEW_MAX] if isinstance(content, str) else f"[multimodal {len(content)} blocks]"
             logger.info(
                 f"[{self.session_id}] Send: {preview}"
                 f"{'...' if isinstance(content, str) and len(content) > LOG_PREVIEW_MAX else ''}"
@@ -461,11 +455,11 @@ class OpenClaudeSession:
                 await asyncio.wait_for(self._turn_event.wait(), timeout=SEND_TIMEOUT_SECONDS)
                 response_text = "\n".join(self._turn_response_lines).strip()
                 if not response_text:
-                    response_text = "(empty response — model may still be starting up)"
+                    response_text = "(empty response - model may still be starting up)"
             except TimeoutError:
                 response_text = "\n".join(self._turn_response_lines).strip()
                 if not response_text:
-                    response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s — model may still be processing)"
+                    response_text = f"(timeout after {SEND_TIMEOUT_SECONDS}s - model may still be processing)"
             turn_duration = time.time() - turn_start
 
             # Track output chars

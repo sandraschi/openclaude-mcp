@@ -1,4 +1,4 @@
-"""Session persistence — write/read session metadata and KAIROS state to/from JSON."""
+"""Session persistence - write/read session metadata and KAIROS state to/from JSON."""
 
 from __future__ import annotations
 
