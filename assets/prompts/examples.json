@@ -1112,7 +1112,7 @@
     "user": "Open a session for the Vienna transit app",
     "tool": "start_session",
     "args": {
-      "working_dir": "D:\\Dev\\repos\\mywienerlinien",
+      "working_dir": "D:\\Dev\\repos\\publictransport-mcp",
       "enable_kairos": true
     },
     "notes": "Complex transit data processing"

@@ -1,0 +1,1164 @@
+[
+  {
+    "id": 1,
+    "category": "model_management",
+    "user": "What Ollama models do I have?",
+    "tool": "list_models",
+    "args": {},
+    "notes": "Lists all known models with availability and VRAM metadata"
+  },
+  {
+    "id": 2,
+    "category": "model_management",
+    "user": "Check if Ollama is running",
+    "tool": "model_status",
+    "args": {},
+    "notes": "Checks default model health"
+  },
+  {
+    "id": 3,
+    "category": "model_management",
+    "user": "Is gemma4 loaded in VRAM?",
+    "tool": "model_status",
+    "args": {
+      "model_tag": "gemma4:26b-a4b"
+    },
+    "notes": "Checks specific model"
+  },
+  {
+    "id": 4,
+    "category": "model_management",
+    "user": "Switch to the fastest model",
+    "tool": "set_default_model",
+    "args": {
+      "model_tag": "qwen3.5:35b-a3b"
+    },
+    "notes": "MoE at 112 tok/s"
+  },
+  {
+    "id": 5,
+    "category": "model_management",
+    "user": "Use the best quality model",
+    "tool": "set_default_model",
+    "args": {
+      "model_tag": "gemma4:31b"
+    },
+    "notes": "Dense 31B, needs 20GB VRAM"
+  },
+  {
+    "id": 6,
+    "category": "model_management",
+    "user": "Use the recommended default",
+    "tool": "set_default_model",
+    "args": {
+      "model_tag": "gemma4:26b-a4b"
+    },
+    "notes": "MoE, best balance"
+  },
+  {
+    "id": 7,
+    "category": "model_management",
+    "user": "Check what's currently in VRAM",
+    "tool": "model_status",
+    "args": {},
+    "notes": "Shows model_in_vram field"
+  },
+  {
+    "id": 8,
+    "category": "model_management",
+    "user": "What model would be best for long sessions?",
+    "tool": "list_models",
+    "args": {},
+    "notes": "Agent should recommend qwen3.5:27b based on reasoning quality"
+  },
+  {
+    "id": 9,
+    "category": "session_lifecycle",
+    "user": "Start a coding session in my yahboom project",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\yahboom-mcp"
+    },
+    "notes": "Default model, no KAIROS"
+  },
+  {
+    "id": 10,
+    "category": "session_lifecycle",
+    "user": "Start a session in my MCP server with KAIROS",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\worldlabs-mcp",
+      "enable_kairos": true
+    },
+    "notes": "Enables memory daemon immediately"
+  },
+  {
+    "id": 11,
+    "category": "session_lifecycle",
+    "user": "Start a fast session for a quick fix",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\my-project",
+      "model_tag": "qwen3.5:35b-a3b"
+    },
+    "notes": "Uses fastest model"
+  },
+  {
+    "id": 12,
+    "category": "session_lifecycle",
+    "user": "Open an agent session with max quality model",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\reversing-mcp",
+      "model_tag": "gemma4:31b",
+      "enable_kairos": true
+    },
+    "notes": "Full quality + memory"
+  },
+  {
+    "id": 13,
+    "category": "session_lifecycle",
+    "user": "What sessions are running?",
+    "tool": "list_sessions",
+    "args": {},
+    "notes": "Shows all active sessions"
+  },
+  {
+    "id": 14,
+    "category": "session_lifecycle",
+    "user": "Stop session abc12345",
+    "tool": "stop_session",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Graceful shutdown"
+  },
+  {
+    "id": 15,
+    "category": "session_lifecycle",
+    "user": "Check what the session is doing",
+    "tool": "session_status",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Returns last output preview"
+  },
+  {
+    "id": 16,
+    "category": "session_lifecycle",
+    "user": "Is session abc12345 still alive?",
+    "tool": "session_status",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Check status field"
+  },
+  {
+    "id": 17,
+    "category": "session_lifecycle",
+    "user": "How long has the session been running?",
+    "tool": "session_status",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Check elapsed_seconds field"
+  },
+  {
+    "id": 18,
+    "category": "prompting",
+    "user": "Tell the session to add a health endpoint",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add a /health endpoint to the FastAPI app that returns status, version, and uptime"
+    },
+    "notes": "Natural language coding instruction"
+  },
+  {
+    "id": 19,
+    "category": "prompting",
+    "user": "Fix the bug in auth.py",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Read auth.py and fix the bug where JWT tokens don't expire correctly"
+    },
+    "notes": "Bug fix task"
+  },
+  {
+    "id": 20,
+    "category": "prompting",
+    "user": "Write tests for the new endpoint",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Write pytest tests for the /health endpoint covering success and error cases"
+    },
+    "notes": "Test generation"
+  },
+  {
+    "id": 21,
+    "category": "prompting",
+    "user": "Review the current codebase and tell me what it does",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Scan the project directory and summarise the architecture, main components, and any obvious issues"
+    },
+    "notes": "Code analysis task"
+  },
+  {
+    "id": 22,
+    "category": "prompting",
+    "user": "Add type hints to all functions",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add Python type hints to all function signatures in the project, using mypy-compatible annotations"
+    },
+    "notes": "Refactoring task"
+  },
+  {
+    "id": 23,
+    "category": "prompting",
+    "user": "Run the tests and fix any failures",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Run pytest and fix any test failures you find"
+    },
+    "notes": "OpenClaude has bash access to run tests"
+  },
+  {
+    "id": 24,
+    "category": "prompting",
+    "user": "Commit the changes",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "/commit"
+    },
+    "notes": "OpenClaude slash command"
+  },
+  {
+    "id": 25,
+    "category": "prompting",
+    "user": "Review the diff before committing",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "/diff"
+    },
+    "notes": "Show changes before commit"
+  },
+  {
+    "id": 26,
+    "category": "prompting",
+    "user": "Compact the session context",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "/compact"
+    },
+    "notes": "OpenClaude context compaction"
+  },
+  {
+    "id": 27,
+    "category": "prompting",
+    "user": "Initialize the session in this project",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "/init"
+    },
+    "notes": "OpenClaude project initialization"
+  },
+  {
+    "id": 28,
+    "category": "prompting",
+    "user": "Add a dark mode toggle to the React app",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add a dark mode toggle to the React app using Tailwind CSS and localStorage persistence"
+    },
+    "notes": "Frontend task"
+  },
+  {
+    "id": 29,
+    "category": "prompting",
+    "user": "Refactor to use async/await throughout",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Refactor all synchronous database calls to use async/await with proper error handling"
+    },
+    "notes": "Async refactoring"
+  },
+  {
+    "id": 30,
+    "category": "prompting",
+    "user": "Add rate limiting to the API",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add rate limiting to all API endpoints: 100 requests per minute per IP, with proper 429 responses and Retry-After headers"
+    },
+    "notes": "Security task"
+  },
+  {
+    "id": 31,
+    "category": "kairos",
+    "user": "Enable KAIROS on my session",
+    "tool": "kairos_enable",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Default 60s idle threshold"
+  },
+  {
+    "id": 32,
+    "category": "kairos",
+    "user": "Enable KAIROS with a longer idle period",
+    "tool": "kairos_enable",
+    "args": {
+      "session_id": "abc12345",
+      "idle_threshold_seconds": 120
+    },
+    "notes": "2-minute idle before consolidation"
+  },
+  {
+    "id": 33,
+    "category": "kairos",
+    "user": "Turn off KAIROS",
+    "tool": "kairos_disable",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Stop daemon, keep session running"
+  },
+  {
+    "id": 34,
+    "category": "kairos",
+    "user": "Show the KAIROS log",
+    "tool": "kairos_log",
+    "args": {
+      "session_id": "abc12345"
+    },
+    "notes": "Last 50 log entries"
+  },
+  {
+    "id": 35,
+    "category": "kairos",
+    "user": "Show the full KAIROS history",
+    "tool": "kairos_log",
+    "args": {
+      "session_id": "abc12345",
+      "lines": 200
+    },
+    "notes": "More history"
+  },
+  {
+    "id": 36,
+    "category": "kairos",
+    "user": "Has KAIROS done any consolidations?",
+    "tool": "kairos_log",
+    "args": {
+      "session_id": "abc12345",
+      "lines": 100
+    },
+    "notes": "Look for 'consolidation #N complete' in log"
+  },
+  {
+    "id": 37,
+    "category": "kairos",
+    "user": "Start a long refactoring session with memory",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\blender-mcp",
+      "enable_kairos": true,
+      "model_tag": "qwen3.5:27b"
+    },
+    "notes": "Best model for KAIROS consolidation quality"
+  },
+  {
+    "id": 38,
+    "category": "ultraplan",
+    "user": "Plan a complete rewrite of the auth system",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design a new authentication system using OAuth2 with JWT refresh tokens, replacing the current session-based auth while maintaining backward compatibility with existing API clients"
+    },
+    "notes": "Complex architecture — good ULTRAPLAN candidate"
+  },
+  {
+    "id": 39,
+    "category": "ultraplan",
+    "user": "Plan the database migration",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Plan migration from SQLite to PostgreSQL with zero downtime, preserving all data, maintaining API compatibility, and including rollback strategy"
+    },
+    "notes": "Infrastructure planning"
+  },
+  {
+    "id": 40,
+    "category": "ultraplan",
+    "user": "Design a plugin architecture",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design a plugin architecture for the MCP server that supports hot reload of tools without restarting the server, including plugin discovery, lifecycle management, and sandboxing"
+    },
+    "notes": "Platform design"
+  },
+  {
+    "id": 41,
+    "category": "ultraplan",
+    "user": "Plan the event sourcing refactor",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Redesign the dreame-mcp server to use event sourcing: every vacuum command becomes an event, state is derived from event stream, with CQRS for read/write separation"
+    },
+    "notes": "Architecture pattern adoption"
+  },
+  {
+    "id": 42,
+    "category": "ultraplan",
+    "user": "Plan the robotics control system",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design the cognitive architecture for autonomous Yahboom robot operation: sensor fusion, path planning, obstacle avoidance, ROS 2 integration, and safety constraints"
+    },
+    "notes": "Complex robotics planning"
+  },
+  {
+    "id": 43,
+    "category": "fleet",
+    "user": "Show the fleet dashboard",
+    "tool": "fleet_dashboard",
+    "args": {},
+    "notes": "Prefab UI if available, JSON fallback"
+  },
+  {
+    "id": 44,
+    "category": "fleet",
+    "user": "Get fleet status",
+    "tool": "fleet_status",
+    "args": {},
+    "notes": "Raw JSON: sessions, KAIROS, Ollama"
+  },
+  {
+    "id": 45,
+    "category": "multi_session",
+    "user": "Start frontend and backend sessions",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\project\\frontend",
+      "model_tag": "qwen3.5:35b-a3b"
+    },
+    "notes": "First of two parallel sessions"
+  },
+  {
+    "id": 46,
+    "category": "multi_session",
+    "user": "Start the backend session",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\project\\backend",
+      "model_tag": "gemma4:26b-a4b"
+    },
+    "notes": "Second parallel session"
+  },
+  {
+    "id": 47,
+    "category": "multi_session",
+    "user": "What are all my sessions?",
+    "tool": "list_sessions",
+    "args": {},
+    "notes": "Overview of all running sessions"
+  },
+  {
+    "id": 48,
+    "category": "session_lifecycle",
+    "user": "Start session in mcp-central-docs",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\mcp-central-docs"
+    },
+    "notes": "Docs editing session"
+  },
+  {
+    "id": 49,
+    "category": "session_lifecycle",
+    "user": "Open a session in the advanced memory server",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\advanced-memory-mcp",
+      "enable_kairos": true
+    },
+    "notes": "Memory-intensive work"
+  },
+  {
+    "id": 50,
+    "category": "session_lifecycle",
+    "user": "Start a session for the robotics bridge",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\yahboom-mcp",
+      "model_tag": "qwen3.5:27b",
+      "enable_kairos": true
+    },
+    "notes": "Complex embedded system work"
+  },
+  {
+    "id": 51,
+    "category": "prompting",
+    "user": "Generate documentation for all public functions",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Generate comprehensive docstrings for all public functions following Google style, including Args, Returns, Raises, and Examples sections"
+    },
+    "notes": "Documentation generation"
+  },
+  {
+    "id": 52,
+    "category": "prompting",
+    "user": "Find and fix security vulnerabilities",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Audit the codebase for security issues: SQL injection, XSS, improper auth, hardcoded secrets, and unsafe deserialization. Fix any found."
+    },
+    "notes": "Security audit"
+  },
+  {
+    "id": 53,
+    "category": "prompting",
+    "user": "Add logging throughout",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add structured logging using structlog throughout the codebase: log all API requests, errors, and key business events with proper context"
+    },
+    "notes": "Observability task"
+  },
+  {
+    "id": 54,
+    "category": "prompting",
+    "user": "Optimize the database queries",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Profile and optimize the database queries: add indexes where needed, fix N+1 queries, and add query result caching for frequently accessed data"
+    },
+    "notes": "Performance optimization"
+  },
+  {
+    "id": 55,
+    "category": "prompting",
+    "user": "Update all deprecated dependencies",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Update all dependencies to their latest stable versions, fix any breaking changes, and run the test suite after each update"
+    },
+    "notes": "Maintenance task"
+  },
+  {
+    "id": 56,
+    "category": "prompting",
+    "user": "Add a CLI interface",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add a Typer-based CLI interface with commands for the main operations, proper --help output, and shell completion support"
+    },
+    "notes": "CLI development"
+  },
+  {
+    "id": 57,
+    "category": "prompting",
+    "user": "Create a Dockerfile",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Create a multi-stage Dockerfile: build stage with all dev deps, production stage minimal image. Include docker-compose.yml for local development."
+    },
+    "notes": "Containerization"
+  },
+  {
+    "id": 58,
+    "category": "prompting",
+    "user": "Add integration tests",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add integration tests using pytest and httpx: test all API endpoints against a running server instance, using test fixtures for setup/teardown"
+    },
+    "notes": "Test expansion"
+  },
+  {
+    "id": 59,
+    "category": "prompting",
+    "user": "Implement retry logic",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add exponential backoff retry logic to all HTTP client calls using tenacity: 3 retries, 1s initial delay, 2x backoff, with specific exception types"
+    },
+    "notes": "Resilience improvement"
+  },
+  {
+    "id": 60,
+    "category": "prompting",
+    "user": "Add WebSocket support",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add WebSocket endpoints to the Starlette app for real-time updates: connection management, heartbeat, and message broadcasting"
+    },
+    "notes": "Real-time feature"
+  },
+  {
+    "id": 61,
+    "category": "model_management",
+    "user": "What's the VRAM situation?",
+    "tool": "model_status",
+    "args": {
+      "model_tag": "gemma4:26b-a4b"
+    },
+    "notes": "Check if model fits"
+  },
+  {
+    "id": 62,
+    "category": "model_management",
+    "user": "Will gemma4 31B fit in my VRAM?",
+    "tool": "model_status",
+    "args": {
+      "model_tag": "gemma4:31b"
+    },
+    "notes": "Check availability before setting default"
+  },
+  {
+    "id": 63,
+    "category": "model_management",
+    "user": "Use qwen for this session",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\my-project",
+      "model_tag": "qwen3.5:27b"
+    },
+    "notes": "Per-session model override"
+  },
+  {
+    "id": 64,
+    "category": "model_management",
+    "user": "Check if GLM-5 is available",
+    "tool": "model_status",
+    "args": {
+      "model_tag": "glm5"
+    },
+    "notes": "Check for newest models"
+  },
+  {
+    "id": 65,
+    "category": "prompting",
+    "user": "Set up the project structure from scratch",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "/init"
+    },
+    "notes": "OpenClaude scans and initializes"
+  },
+  {
+    "id": 66,
+    "category": "prompting",
+    "user": "What's the state of the codebase?",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Give me a comprehensive overview of this codebase: directory structure, main modules, dependencies, test coverage, and any obvious technical debt"
+    },
+    "notes": "Analysis prompt"
+  },
+  {
+    "id": 67,
+    "category": "prompting",
+    "user": "Extract the business logic into a service layer",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Refactor the codebase to extract business logic from the API handlers into a dedicated service layer, keeping handlers thin"
+    },
+    "notes": "Architecture refactoring"
+  },
+  {
+    "id": 68,
+    "category": "prompting",
+    "user": "Add pagination to all list endpoints",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add cursor-based pagination to all list endpoints: default page size 20, max 100, using cursor pattern for stability"
+    },
+    "notes": "API improvement"
+  },
+  {
+    "id": 69,
+    "category": "prompting",
+    "user": "Write a migration script",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Write an Alembic migration script to add the user_preferences table with columns: id, user_id, key, value, created_at, updated_at"
+    },
+    "notes": "Database migration"
+  },
+  {
+    "id": 70,
+    "category": "prompting",
+    "user": "Add caching with Redis",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add Redis caching to the expensive API endpoints: 5-minute TTL for list operations, invalidation on write, using redis-py async client"
+    },
+    "notes": "Performance caching"
+  },
+  {
+    "id": 71,
+    "category": "ultraplan",
+    "user": "Plan the multi-agent system architecture",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design a multi-agent system where specialized sub-agents handle different domains (robotics, media, memory) with a coordinator agent routing tasks based on capabilities"
+    },
+    "notes": "Complex agent orchestration"
+  },
+  {
+    "id": 72,
+    "category": "ultraplan",
+    "user": "Plan the VR integration architecture",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design the architecture for bidirectional VR-to-AI communication: Resonite VR → MCP server → AI agents → VR responses, with low latency and crash recovery"
+    },
+    "notes": "Cross-platform architecture"
+  },
+  {
+    "id": 73,
+    "category": "ultraplan",
+    "user": "Plan the fleet monitoring system",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design a comprehensive fleet monitoring system for 136 MCP servers: health checks, alerting, log aggregation, performance metrics, and automated recovery"
+    },
+    "notes": "Infrastructure planning"
+  },
+  {
+    "id": 74,
+    "category": "kairos",
+    "user": "Check if KAIROS has been active",
+    "tool": "kairos_log",
+    "args": {
+      "session_id": "abc12345",
+      "lines": 20
+    },
+    "notes": "Quick check for recent activity"
+  },
+  {
+    "id": 75,
+    "category": "kairos",
+    "user": "Enable KAIROS with a short idle threshold for frequent consolidation",
+    "tool": "kairos_enable",
+    "args": {
+      "session_id": "abc12345",
+      "idle_threshold_seconds": 30
+    },
+    "notes": "30s idle for high-frequency consolidation"
+  },
+  {
+    "id": 76,
+    "category": "kairos",
+    "user": "Enable KAIROS with a long threshold for deep work",
+    "tool": "kairos_enable",
+    "args": {
+      "session_id": "abc12345",
+      "idle_threshold_seconds": 300
+    },
+    "notes": "5-minute idle for deep focus sessions"
+  },
+  {
+    "id": 77,
+    "category": "session_lifecycle",
+    "user": "Stop all sessions",
+    "tool": "list_sessions",
+    "args": {},
+    "notes": "First get IDs, then stop each"
+  },
+  {
+    "id": 78,
+    "category": "prompting",
+    "user": "Add input validation everywhere",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add comprehensive input validation using Pydantic v2: validate all API inputs, add custom validators for business rules, return proper 422 errors with field details"
+    },
+    "notes": "Validation improvement"
+  },
+  {
+    "id": 79,
+    "category": "prompting",
+    "user": "Implement the repository pattern",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Implement the repository pattern for all database access: abstract interfaces, SQLAlchemy implementations, and in-memory implementations for testing"
+    },
+    "notes": "Design pattern"
+  },
+  {
+    "id": 80,
+    "category": "prompting",
+    "user": "Add background task processing",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add background task processing using asyncio.Queue: task submission API, worker pool, progress tracking, and result retrieval"
+    },
+    "notes": "Async architecture"
+  },
+  {
+    "id": 81,
+    "category": "prompting",
+    "user": "Fix all mypy errors",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Run mypy and fix all type errors. Use TypeVar for generics, add overloads where needed, and cast only as last resort."
+    },
+    "notes": "Type safety"
+  },
+  {
+    "id": 82,
+    "category": "prompting",
+    "user": "Add OpenAPI documentation",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add comprehensive OpenAPI documentation: operation descriptions, parameter docs, response schemas with examples, and authentication documentation"
+    },
+    "notes": "API docs"
+  },
+  {
+    "id": 83,
+    "category": "prompting",
+    "user": "Implement circuit breaker pattern",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Implement circuit breaker pattern for all external API calls: open/half-open/closed states, failure threshold 5, recovery timeout 60s"
+    },
+    "notes": "Resilience pattern"
+  },
+  {
+    "id": 84,
+    "category": "prompting",
+    "user": "Add health checks for all dependencies",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add liveness and readiness health checks: verify database connection, external API connectivity, and queue availability. Return structured status JSON."
+    },
+    "notes": "Operational health"
+  },
+  {
+    "id": 85,
+    "category": "prompting",
+    "user": "Create an E2E test suite",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Create an E2E test suite using pytest-asyncio and httpx: test the full user journey from registration through all main features, using test containers for dependencies"
+    },
+    "notes": "E2E testing"
+  },
+  {
+    "id": 86,
+    "category": "fleet",
+    "user": "What's the fleet doing right now?",
+    "tool": "fleet_status",
+    "args": {},
+    "notes": "Quick fleet overview"
+  },
+  {
+    "id": 87,
+    "category": "fleet",
+    "user": "Open the fleet dashboard",
+    "tool": "fleet_dashboard",
+    "args": {},
+    "notes": "Prefab UI or JSON summary"
+  },
+  {
+    "id": 88,
+    "category": "session_lifecycle",
+    "user": "Start a session for documentation writing",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\openclaude-mcp",
+      "model_tag": "gemma4:26b-a4b"
+    },
+    "notes": "Writing task uses strong model"
+  },
+  {
+    "id": 89,
+    "category": "session_lifecycle",
+    "user": "Start a KAIROS-enabled session for the blender plugin",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\blender-mcp",
+      "enable_kairos": true
+    },
+    "notes": "Complex Python scripting"
+  },
+  {
+    "id": 90,
+    "category": "session_lifecycle",
+    "user": "Start a session for reverse engineering",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\reversing-mcp",
+      "model_tag": "qwen3.5:27b",
+      "enable_kairos": true
+    },
+    "notes": "Complex analysis needs reasoning model"
+  },
+  {
+    "id": 91,
+    "category": "prompting",
+    "user": "Analyse this binary for security issues",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Use the Ghidra tools to analyse the binary at /path/to/binary.exe for: hardcoded secrets, unsafe memory operations, and suspicious network calls"
+    },
+    "notes": "Reverse engineering workflow"
+  },
+  {
+    "id": 92,
+    "category": "prompting",
+    "user": "Port this TypeScript to Python",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Port all TypeScript files in src/ to idiomatic Python 3.11+: preserve all functionality, use dataclasses for types, asyncio for async operations"
+    },
+    "notes": "Language migration"
+  },
+  {
+    "id": 93,
+    "category": "prompting",
+    "user": "Generate a justfile for the project",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Create a justfile with recipes for: install, serve, test, lint, fmt, build, and clean. Follow the fleet standards in mcp-central-docs."
+    },
+    "notes": "Project tooling"
+  },
+  {
+    "id": 94,
+    "category": "prompting",
+    "user": "Add pre-commit hooks",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add .pre-commit-config.yaml with ruff for linting and formatting, committed to the repo"
+    },
+    "notes": "Code quality automation"
+  },
+  {
+    "id": 95,
+    "category": "prompting",
+    "user": "Write the CHANGELOG",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Generate a CHANGELOG.md from git history, grouping changes by type: Added, Changed, Fixed, Removed. Follow Keep a Changelog format."
+    },
+    "notes": "Documentation from git"
+  },
+  {
+    "id": 96,
+    "category": "ultraplan",
+    "user": "Plan the Bumi humanoid robot integration",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design the full integration of a Noetix Bumi humanoid robot: ROS 2 control bridge, sensor data pipeline, autonomous navigation, voice interaction in German and Japanese, and safety constraints"
+    },
+    "notes": "Complex robotics planning"
+  },
+  {
+    "id": 97,
+    "category": "ultraplan",
+    "user": "Design the sovereign AI orchestration hub",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design RoboFang as a sovereign AI orchestration hub: multi-agent council with specialized sub-agents, MCP fleet management, ROS 2 bridge, Resonite VR integration, and autonomous task delegation"
+    },
+    "notes": "Flagship architecture planning"
+  },
+  {
+    "id": 98,
+    "category": "prompting",
+    "user": "Add internationalization support",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add i18n support: extract all user-facing strings, create translation files for German and Japanese (primary languages), add language detection middleware"
+    },
+    "notes": "i18n for German/Japanese user"
+  },
+  {
+    "id": 99,
+    "category": "prompting",
+    "user": "Optimise for low latency",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Profile the hot paths and optimise for latency: connection pooling, response caching, query optimisation, and async I/O throughout"
+    },
+    "notes": "Performance work"
+  },
+  {
+    "id": 100,
+    "category": "prompting",
+    "user": "Make the server production-ready",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Harden the server for production: add rate limiting, request size limits, proper CORS config, security headers, structured logging, health checks, and graceful shutdown"
+    },
+    "notes": "Production hardening"
+  },
+  {
+    "id": 101,
+    "category": "model_management",
+    "user": "Pull all recommended models",
+    "tool": "list_models",
+    "args": {},
+    "notes": "Agent should then suggest ollama pull commands for missing models"
+  },
+  {
+    "id": 102,
+    "category": "kairos",
+    "user": "What did KAIROS learn during the last session?",
+    "tool": "kairos_log",
+    "args": {
+      "session_id": "abc12345",
+      "lines": 100
+    },
+    "notes": "Inspect full consolidation history"
+  },
+  {
+    "id": 103,
+    "category": "prompting",
+    "user": "Continue where you left off",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Read MEMORY.md to review what we accomplished, then continue with the next items from the plan"
+    },
+    "notes": "Session continuation with KAIROS memory"
+  },
+  {
+    "id": 104,
+    "category": "prompting",
+    "user": "Write a comprehensive README",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Write a comprehensive README.md: project overview, features, installation, configuration, usage examples, API reference, and contributing guide"
+    },
+    "notes": "Documentation task"
+  },
+  {
+    "id": 105,
+    "category": "session_lifecycle",
+    "user": "Start a session for the Dreame robot vacuum",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\dreame-mcp",
+      "model_tag": "qwen3.5:27b"
+    },
+    "notes": "IoT development needs reasoning"
+  },
+  {
+    "id": 106,
+    "category": "session_lifecycle",
+    "user": "Open a session for the Vienna transit app",
+    "tool": "start_session",
+    "args": {
+      "working_dir": "D:\\Dev\\repos\\mywienerlinien",
+      "enable_kairos": true
+    },
+    "notes": "Complex transit data processing"
+  },
+  {
+    "id": 107,
+    "category": "prompting",
+    "user": "Implement the GTFS data pipeline",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Implement a GTFS data pipeline: download feed, parse trips/stops/times, store in SQLite with FTS, expose via REST API with filtering"
+    },
+    "notes": "Data engineering task"
+  },
+  {
+    "id": 108,
+    "category": "prompting",
+    "user": "Add real-time WebSocket updates",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Add WebSocket support for real-time vehicle position updates: subscribe to positions by line, push updates as JSON, handle reconnection"
+    },
+    "notes": "Real-time transit updates"
+  },
+  {
+    "id": 109,
+    "category": "ultraplan",
+    "user": "Plan the autonomous Raspberry Pi agent",
+    "tool": "ultraplan",
+    "args": {
+      "session_id": "abc12345",
+      "goal": "Design the two-brain cognitive architecture for the Yahboom robot: Gemma 4 E2B on Raspberry Pi 5 for edge decisions, Claude Sonnet on Goliath for complex planning, with a reliable Pi-Goliath communication channel and graceful degradation to Pi-only when Goliath is unreachable"
+    },
+    "notes": "Distributed AI architecture"
+  },
+  {
+    "id": 110,
+    "category": "prompting",
+    "user": "Implement the MCP tool portmanteau pattern",
+    "tool": "send_prompt",
+    "args": {
+      "session_id": "abc12345",
+      "prompt": "Refactor the multiple individual tools into a single portmanteau tool following the fleet standard: one tool with an 'operation' parameter dispatching to sub-operations, with comprehensive docstrings for each sub-operation"
+    },
+    "notes": "Fleet standards compliance"
+  }
+]
