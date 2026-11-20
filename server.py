@@ -55,6 +55,7 @@ from openclaude.session_persistence import cleanup_stale, load_sessions, save_se
 # Logging — capture logs for web UI
 # ---------------------------------------------------------------------------
 
+
 class WebLogHandler(logging.Handler):
     def __init__(self, max_lines: int = 200) -> None:
         super().__init__()
@@ -66,19 +67,20 @@ class WebLogHandler(logging.Handler):
             # Skip noise: health checks and periodic polls
             if "/api/health" in record.getMessage() or "/api/tags" in record.getMessage():
                 return
-            
+
             msg = self.format(record)
             ts = time.strftime("%H:%M:%S", time.localtime(record.created))
-            
+
             # Add level marker for browser console coloring
             level = f"[{record.levelname}]"
             line = f"[{ts}] {level} {msg}"
-            
+
             self.lines.append(line)
             if len(self.lines) > self.max_lines:
                 self.lines.pop(0)
         except Exception:
             self.handleError(record)
+
 
 # Attach WebLogHandler to our unified app logger
 GLOBAL_LOG_HANDLER = WebLogHandler()
@@ -92,7 +94,7 @@ logging.getLogger().setLevel(logging.WARNING)
 for log_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
     uv_logger = logging.getLogger(log_name)
     uv_logger.addHandler(GLOBAL_LOG_HANDLER)
-    uv_logger.propagate = False # avoid double logs
+    uv_logger.propagate = False  # avoid double logs
 
 logger = get_logger("server")
 
@@ -193,7 +195,9 @@ async def lifespan(server: FastMCP) -> Any:  # noqa: ANN401
     # Restore sessions from disk
     saved = await load_sessions()
     if saved:
-        print(f"  Found {len(saved)} persisted session(s) — rehydrating ({len([s for s in saved if s.get('pid')])} with PIDs)")
+        print(
+            f"  Found {len(saved)} persisted session(s) — rehydrating ({len([s for s in saved if s.get('pid')])} with PIDs)"
+        )
 
     # Restore KAIROS state
     await kairos.load_persisted_state()
@@ -279,7 +283,10 @@ async def fleet_dashboard(ctx: Context | None = None) -> Any:
         Row(
             Badge(f"Sessions: {len(fleet['running'])}", color="green" if fleet["running"] else "gray"),
             Badge(f"KAIROS: {len(fleet['kairos_active'])}", color="amber" if fleet["kairos_active"] else "gray"),
-            Badge(f"Ollama: {'online' if fleet['ollama_running'] else 'offline'}", color="green" if fleet["ollama_running"] else "red"),
+            Badge(
+                f"Ollama: {'online' if fleet['ollama_running'] else 'offline'}",
+                color="green" if fleet["ollama_running"] else "red",
+            ),
             Badge(f"Default: {fleet['default_model'].split(':')[0]}", color="blue"),
         ),
         Table(data=rows) if rows else Text("No sessions running.", variant="muted"),
@@ -297,6 +304,7 @@ async def fleet_status(ctx: Context | None = None) -> dict[str, Any]:
         "default_model": fleet["default_model"],
         "ollama_running": fleet["ollama_running"],
     }
+
 
 # ---------------------------------------------------------------------------
 # Safety & Policy Helpers
@@ -348,7 +356,12 @@ async def caregiver_alert(session_id: str, risk_topic: str, reason: str, ctx: Co
             async with httpx.AsyncClient(timeout=5) as client:
                 await client.post(
                     CAREGIVER_WEBHOOK_URL,
-                    json={"session_id": session_id, "risk_topic": risk_topic, "reason": reason, "timestamp": time.time()},
+                    json={
+                        "session_id": session_id,
+                        "risk_topic": risk_topic,
+                        "reason": reason,
+                        "timestamp": time.time(),
+                    },
                 )
         except Exception as e:
             logger.error(f"Caregiver webhook failed: {e}")
@@ -486,7 +499,9 @@ async def send_prompt(session_id: str, prompt: str, ctx: Context | None = None) 
 
 
 @mcp.tool()
-async def send_multimodal(session_id: str, text: str, image_paths: list[str] | None = None, ctx: Context | None = None) -> dict[str, Any]:
+async def send_multimodal(
+    session_id: str, text: str, image_paths: list[str] | None = None, ctx: Context | None = None
+) -> dict[str, Any]:
     """Send a prompt with image attachments to a running OpenClaude session.
 
     Args:
@@ -614,7 +629,9 @@ async def ultraplan(session_id: str, goal: str, ctx: Context | None = None) -> d
     except Exception as e:
         return {"error": str(e)}
     feed_result = await session.send(f"ULTRAPLAN — execute this plan step by step:\n\n{plan_text}")
-    logger.info(f"[ULTRAPLAN] {OPENCLAUDE_ULTRAPLAN_MODEL} — goal: {goal[:80]} — tokens: {input_tokens} in / {output_tokens} out")
+    logger.info(
+        f"[ULTRAPLAN] {OPENCLAUDE_ULTRAPLAN_MODEL} — goal: {goal[:80]} — tokens: {input_tokens} in / {output_tokens} out"
+    )
     return {
         "status": "ok",
         "session_id": session_id,
@@ -678,7 +695,9 @@ async def _rest_tool_handler(request: Request) -> JSONResponse:
     try:
         return JSONResponse(result)
     except TypeError as e:
-        return JSONResponse({"error": f"Response not serializable: {e}", "result_preview": str(result)[:200]}, status_code=500)
+        return JSONResponse(
+            {"error": f"Response not serializable: {e}", "result_preview": str(result)[:200]}, status_code=500
+        )
 
 
 async def _logs_handler(_request: Request) -> JSONResponse:
@@ -757,7 +776,14 @@ def build_app() -> Starlette:
     app = Starlette(routes=routes)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://127.0.0.1:10933",
+            "http://localhost:10933",
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ],
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
